@@ -1,0 +1,32 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# A polling bot must be a *worker*, not a web service: it makes outbound calls
+# to Telegram and serves no HTTP, so a free web service would sleep when idle
+# and stop taking attendance. Workers are a paid service type on Render.
+#
+# If Render rejects `runtime:`, this account is on the older schema —
+# rename it to `env: docker`.
+
+services:
+  - type: worker
+    name: attendance-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: frankfurt        # closest Render region to Uzbekistan
+    autoDeploy: true
+
+    envVars:
+      # Set the real value in the Render dashboard. sync:false keeps it out of
+      # this file, and therefore out of git.
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATA_DIR
+        value: /data
+
+    # Without this disk the container filesystem is wiped on every restart and
+    # redeploy: verified users, access codes and attendance history all vanish.
+    disk:
+      name: attendance-data
+      mountPath: /data
+      sizeGB: 1

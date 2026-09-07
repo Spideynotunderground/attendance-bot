@@ -1,0 +1,7 @@
+.venv/
+.env
+data.json
+data.backup-*.json
+bot.log
+__pycache__/
+.data-*.json

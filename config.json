@@ -1,0 +1,39 @@
+{
+  "_note": "Safe to commit — no secrets here. The bot token lives in .env / the host's environment.",
+  "group_name": "Group 206",
+  "_students_note": "Edit this list to your real roster. Order here is the order of the buttons.",
+  "students": [
+    "Абдужабборов Муминжон",
+    "Абдулаева Фарзона",
+    "Абдулхайров Мухаммадмирзо",
+    "Амруллаев Амирбек",
+    "Аслитдинов Акобир",
+    "Бахтиёров Мухаммадбек",
+    "Бекмуродова Муштари",
+    "Жамолов Мухаммадали",
+    "Жамолова Сафиябону",
+    "Зайнидинов Хумоюн",
+    "Коджанов Дархан",
+    "Муаззамов Абдулазиз",
+    "Муратов Комил",
+    "Низамова Мунисабону",
+    "Садуллаева Рухшона",
+    "Садыков Руслан",
+    "Самадов Асильбек",
+    "Усманов Нурлан",
+    "Файзиева Донохон",
+    "Фаттаев Шохрух",
+    "Хазиков Синан",
+    "Хакимов Мухаммад",
+    "Худойбердыев Дадар",
+    "Худойбердыев Хакимжон",
+    "Шарипов Мухаммадсаид"
+  ],
+  "_codes_note": "One-time access codes. Each one verifies exactly ONE person, then dies. Add more here any time, or use /newcode inside the bot. Leave empty to auto-generate three on first run.",
+  "initial_access_codes": [
+    "ADMIN-4F7K2",
+    "ADMIN-9QX3M",
+    "ADMIN-B6R8T",
+    "ADMIN-6YG5U"
+  ]
+}
