@@ -156,15 +156,17 @@ current pricing before you commit to it.
 
 **1. Push to GitHub**
 
+Create an empty **private** repo on github.com (no README, no .gitignore), then:
+
 ```bash
-gh repo create attendance-bot --private --source=. --push
+git remote add origin https://github.com/<you>/attendance-bot.git
+git push -u origin main
 ```
 
-Or, without the `gh` CLI: create an empty private repo on github.com, then
+Or with the GitHub CLI, if you install it (`brew install gh`, then `gh auth login`):
 
 ```bash
-git remote add origin git@github.com:<you>/attendance-bot.git
-git push -u origin main
+gh repo create attendance-bot --private --source=. --push
 ```
 
 **2. Create the service**
