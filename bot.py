@@ -88,20 +88,6 @@ def is_day_off(d) -> bool:
     return d.isoformat() in (cfg.get("dates") or [])
 
 
-def lessons_for(d) -> list:
-    return (CONFIG.get("timetable") or {}).get(d.strftime("%A").lower(), [])
-
-
-def format_lessons(lessons: list) -> str:
-    """["Math", "Math", "English"] -> "Math, Math, and English"."""
-    if not lessons:
-        return "no lessons"
-    if len(lessons) == 1:
-        return lessons[0]
-    if len(lessons) == 2:
-        return f"{lessons[0]} and {lessons[1]}"
-    return ", ".join(lessons[:-1]) + ", and " + lessons[-1]
-
 
 # --------------------------------------------------------------------------
 # config / state helpers
@@ -895,21 +881,6 @@ async def job_unmarked_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("Unmarked-attendance reminder sent to %d chat(s).", n)
 
 
-async def job_tomorrow_schedule(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """21:00 Tashkent — tomorrow's lessons to the groups, the evening before."""
-    tomorrow = now().date() + timedelta(days=1)
-    if is_day_off(tomorrow):
-        log.info("No schedule sent: %s is a day off.", tomorrow)
-        return
-    lessons = lessons_for(tomorrow)
-    if not lessons:
-        log.info("No schedule sent: nothing timetabled for %s.", tomorrow)
-        return
-    text = f"🗓 <b>{tomorrow.strftime('%A')}:</b> {html.escape(format_lessons(lessons))}"
-    n = await broadcast_text(context, group_chats(), text)
-    log.info("Tomorrow's schedule sent to %d group(s).", n)
-
-
 # --------------------------------------------------------------------------
 # midnight rollover (00:00 Asia/Tashkent)
 # --------------------------------------------------------------------------
@@ -985,7 +956,6 @@ def main() -> None:
     jq.run_daily(job_weekly_stats, time=dtime(9, 0, tzinfo=TZ), name="weekly-stats")
     jq.run_daily(job_unmarked_reminder, time=dtime(9, 40, tzinfo=TZ), name="reminder-0940")
     jq.run_daily(job_unmarked_reminder, time=dtime(11, 10, tzinfo=TZ), name="reminder-1110")
-    jq.run_daily(job_tomorrow_schedule, time=dtime(21, 0, tzinfo=TZ), name="tomorrow-schedule")
 
     log.info("Data directory: %s", storage.DATA_FILE.parent)
     log.info("Today in Tashkent is %s (now %s).", today_key(), now().strftime("%H:%M %Z"))

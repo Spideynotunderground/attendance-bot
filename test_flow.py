@@ -402,48 +402,17 @@ async def main():
     check("/reset does not touch sealed days",
           bot.STATE["attendance"][yesterday] == ["Bob Carter"])
 
-    section("timetable formatting and days off (Task 4)")
-    check("three lessons use an Oxford comma",
-          bot.format_lessons(["Math", "Math", "English"]) == "Math, Math, and English")
-    check("two lessons join with 'and'",
-          bot.format_lessons(["Math", "English"]) == "Math and English")
-    check("one lesson stands alone", bot.format_lessons(["Math"]) == "Math")
-    check("no lessons reads sensibly", bot.format_lessons([]) == "no lessons")
-
+    section("days off")
     bot.CONFIG["days_off"] = {"weekdays": ["sunday"], "dates": ["2026-09-23"]}
-    bot.CONFIG["timetable"] = {"tuesday": ["Physics", "English", "History"], "sunday": []}
     check("Sunday is a day off", bot.is_day_off(dt.date(2026, 9, 20)))
     check("Monday is not", not bot.is_day_off(dt.date(2026, 9, 21)))
     check("a one-off holiday is a day off", bot.is_day_off(dt.date(2026, 9, 23)))
-    check("lessons are looked up by weekday name",
-          bot.lessons_for(dt.date(2026, 9, 15)) == ["Physics", "English", "History"])
 
     section("scheduled jobs")
     real_now = bot.now
 
     def freeze(y, mo, d, h, mi=0):
         bot.now = lambda: dt.datetime(y, mo, d, h, mi, tzinfo=bot.TZ)
-
-    # -- Task 4: tomorrow's lessons, sent the evening before
-    freeze(2026, 9, 14, 21)                       # Monday 21:00 -> Tuesday
-    before = len(ctx.bot.messages)
-    await bot.job_tomorrow_schedule(ctx)
-    sched = ctx.bot.messages[-1]
-    check("schedule goes to the group", sched["chat_id"] == -1001234567890)
-    check("schedule names tomorrow and its lessons",
-          "Tuesday:" in sched["text"] and "Physics, English, and History" in sched["text"])
-    check("schedule goes only to groups",
-          len(ctx.bot.messages) == before + len(bot.group_chats()))
-
-    freeze(2026, 9, 19, 21)                       # Saturday -> Sunday is off
-    before = len(ctx.bot.messages)
-    await bot.job_tomorrow_schedule(ctx)
-    check("nothing sent the evening before a day off", len(ctx.bot.messages) == before)
-
-    freeze(2026, 9, 15, 21)                       # Tuesday -> Wednesday untimetabled
-    before = len(ctx.bot.messages)
-    await bot.job_tomorrow_schedule(ctx)
-    check("nothing sent when no lessons are timetabled", len(ctx.bot.messages) == before)
 
     # -- Task 3: the unmarked-attendance nudge
     freeze(2026, 9, 15, 9, 40)                    # a Tuesday

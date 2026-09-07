@@ -80,7 +80,6 @@ All times are **Asia/Tashkent**. Nothing is sent on a day off.
 |---|---|---|
 | Mondays 09:00 | Weekly statistics for the previous Mon–Sun | Every verified user **and** every group |
 | Daily 09:40 and 11:10 | "You haven't marked attendance" — only if the register is untaken | Every verified user |
-| Daily 21:00 | Tomorrow's lessons, e.g. `Tuesday: Physics, English, and History` | Every group |
 | Daily 00:00 | Day rollover (below) | — |
 
 **Weekly statistics** rank the students with the most absences and list those
@@ -104,17 +103,7 @@ counts as taking it; merely viewing the list does not.
 ```
 
 `weekdays` repeats every week; `dates` are one-off holidays. On a day off there
-is no reminder and no weekly stats, and no schedule is sent the evening before.
-
-**The timetable** is a list of lessons per weekday. Repeat a subject to show it
-twice; an empty list means no message that evening.
-
-```json
-"timetable": {
-  "monday": ["Math", "Math", "English"],
-  "sunday": []
-}
-```
+is no reminder and no weekly stats.
 
 ## The day rolls over at midnight, Tashkent time
 
@@ -149,7 +138,6 @@ labelled `🔒 Closed — final.` The full history is kept in `data.json`.
 |---|---|
 | `group_name` | Shown in the report header |
 | `students` | Your roster. Edit this list — button order follows it |
-| `timetable` | Lessons per weekday, sent to groups the evening before |
 | `days_off` | Weekly days off and one-off holidays |
 
 Environment variables (`.env` locally, host settings on a server):

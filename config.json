@@ -29,40 +29,7 @@
     "Худойбердыев Хакимжон",
     "Шарипов Мухаммадсаид"
   ],
-  "_timetable_note": "Lessons per weekday. Sent to the groups at 21:00 the evening before. Repeat a subject to show it twice. Empty list = no lessons that day.",
-  "timetable": {
-    "monday": [
-      "Math",
-      "Math",
-      "English"
-    ],
-    "tuesday": [
-      "Physics",
-      "English",
-      "History"
-    ],
-    "wednesday": [
-      "Math",
-      "Chemistry",
-      "PE"
-    ],
-    "thursday": [
-      "Biology",
-      "English",
-      "Math"
-    ],
-    "friday": [
-      "History",
-      "Physics",
-      "Literature"
-    ],
-    "saturday": [
-      "Math",
-      "English"
-    ],
-    "sunday": []
-  },
-  "_days_off_note": "No schedule, reminders or weekly stats are sent on these days. 'weekdays' repeats every week; 'dates' are one-off holidays as YYYY-MM-DD.",
+  "_days_off_note": "No reminders or weekly statistics are sent on these days. 'weekdays' repeats every week; 'dates' are one-off holidays as YYYY-MM-DD.",
   "days_off": {
     "weekdays": [
       "sunday"
