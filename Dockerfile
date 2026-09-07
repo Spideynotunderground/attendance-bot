@@ -17,6 +17,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py report.py storage.py config.json ./
+COPY fonts/ ./fonts/
 
 # Mount a persistent volume here, or verified users and attendance history
 # are lost on every restart.
