@@ -192,6 +192,54 @@ No ACCESS_CODES set. Generated bootstrap codes: CODE-4F7K2A, CODE-9QX3MB, CODE-B
 Read them out of the Render log, redeem one, then add your own with the file.
 They exist nowhere else — not in the repo, not in the image.
 
+## Deploying to a free VM
+
+Free *managed* platforms no longer suit an always-on polling bot — but a free
+VM does, and it costs nothing indefinitely:
+
+- **Oracle Cloud Always Free** — no time limit, generous specs
+- **Google Cloud free tier** — one `e2-micro` in `us-west1`, `us-central1` or
+  `us-east1`
+
+Create an **Ubuntu 22.04 or 24.04** VM (the smallest size is plenty — this bot
+idles at a few MB), then SSH in and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Spideynotunderground/attendance-bot/main/deploy/setup.sh | bash
+```
+
+That installs Python and the fonts, creates an unprivileged `attbot` user,
+clones the repo to `/opt/attendance-bot`, and installs a systemd service. Then
+add your token and start it:
+
+```bash
+sudo nano /etc/attendance-bot.env     # paste it after BOT_TOKEN=
+sudo systemctl start attendance-bot
+sudo journalctl -u attendance-bot -f  # watch it come up
+```
+
+Grab a bootstrap code from that log and redeem it in Telegram.
+
+No inbound ports are needed — the bot only makes outbound calls to Telegram, so
+leave the firewall closed.
+
+### Running it
+
+| Task | Command |
+|---|---|
+| Status | `sudo systemctl status attendance-bot` |
+| Logs (live) | `sudo journalctl -u attendance-bot -f` |
+| Restart | `sudo systemctl restart attendance-bot` |
+| Stop | `sudo systemctl stop attendance-bot` |
+| Deploy new code | `bash /opt/attendance-bot/deploy/update.sh` |
+| Add access codes | `sudo -u attbot tee -a /var/lib/attendance-bot/access_codes.txt` |
+
+`Restart=always` brings the bot back after a crash, and the service is enabled,
+so it also survives a reboot.
+
+State lives in `/var/lib/attendance-bot/` — outside the git checkout, so
+`update.sh` never touches your verified users or attendance history.
+
 ## Deploying to Render
 
 Render runs it as a **Background Worker** — a polling bot serves no HTTP, so a
@@ -271,6 +319,7 @@ process (not a sleeping web service) and a persistent volume at `DATA_DIR`.
 | `fonts/` | DejaVu Sans, shipped so Cyrillic renders identically everywhere |
 | `Dockerfile` | Container image (fonts + tzdata included) |
 | `render.yaml` | Render Blueprint: worker + persistent disk |
+| `deploy/` | systemd unit and setup/update scripts for a VM |
 | `test_flow.py` | Offline end-to-end check of the whole flow |
 
 > `config.json` holds your bot token and `data.json` holds who is verified.

@@ -1,0 +1,32 @@
+[Unit]
+Description=Group 206 attendance bot
+Documentation=https://github.com/Spideynotunderground/attendance-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=attbot
+Group=attbot
+WorkingDirectory=/opt/attendance-bot
+EnvironmentFile=/etc/attendance-bot.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/attendance-bot/.venv/bin/python /opt/attendance-bot/bot.py
+
+# Telegram drops long-poll connections routinely; always come back up.
+Restart=always
+RestartSec=10
+
+# The bot only ever needs to write its own data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/attendance-bot
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
