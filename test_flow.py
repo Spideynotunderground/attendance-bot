@@ -15,6 +15,8 @@ os.environ["ACCESS_CODES"] = "TEST-AAA, TEST-BBB"
 from datetime import timedelta
 from pathlib import Path
 
+from telegram.error import ChatMigrated, Forbidden, TelegramError
+
 import storage
 
 # Point the store at a scratch file so the real data.json is untouched.
@@ -93,11 +95,26 @@ class MemberChange:
 
 
 class Bot_:
+    id = 42
+
     def __init__(self):
         self.photos, self.docs, self.edits, self.messages = [], [], [], []
         self._n = 100
+        self.membership = {}       # chat_id -> status Telegram would report
+        self.member_errors = {}    # chat_id -> error raised by get_chat_member
+        self.send_fail = {}        # chat_id -> error raised by send_photo
+        self.migrate = {}          # chat_id -> new id, raised once as ChatMigrated
+
+    async def get_chat_member(self, chat_id, user_id):
+        if chat_id in self.member_errors:
+            raise self.member_errors[chat_id]
+        return type("M", (), {"status": self.membership.get(chat_id, "member")})()
 
     async def send_photo(self, chat_id, photo, caption=None, reply_markup=None, **kw):
+        if chat_id in self.send_fail:
+            raise self.send_fail[chat_id]
+        if chat_id in self.migrate:
+            raise ChatMigrated(self.migrate.pop(chat_id))
         self._n += 1
         is_file_id = isinstance(photo, str)
         self.photos.append({
@@ -371,7 +388,7 @@ async def main():
     gone = Query(f"snd:{today}:-1009876543210", Message(message_id=report_msg_id))
     await bot.on_button(Update(teacher, query=gone), ctx)
     check("sending to a group we left is refused",
-          any("no longer in that group" in (a or "") for a in gone.alerts))
+          any("not in that group any more" in (a or "") for a in gone.alerts))
 
     section("persistence and codes")
     bot.STATE = storage.load()
@@ -401,6 +418,54 @@ async def main():
     check("/reset clears today", bot.absent_today() == [])
     check("/reset does not touch sealed days",
           bot.STATE["attendance"][yesterday] == ["Bob Carter"])
+
+    section("stale group buttons")
+    bot.STATE["groups"] = {
+        "-1001111111111": {"title": "Still In", "type": "group"},
+        "-1002222222222": {"title": "Kicked Out", "type": "group"},
+    }
+    storage.save(bot.STATE)
+    ctx.bot.membership = {-1001111111111: "member", -1002222222222: "left"}
+
+    await bot.on_button(Update(teacher, query=Query(f"rep:{today}", Message(message_id=90))), ctx)
+    check("a group the bot has left gets no button",
+          labels(ctx.bot.photos[-1]["markup"]) == ["📤 Send to Still In"])
+    check("and it is dropped from state", "-1002222222222" not in bot.STATE["groups"])
+
+    bot.STATE["groups"]["-1003333333333"] = {"title": "Flaky", "type": "group"}
+    ctx.bot.member_errors = {-1003333333333: TelegramError("temporary failure")}
+    live = await bot.live_groups(ctx)
+    check("a transient check failure keeps the group", "-1003333333333" in live)
+    check("and does not drop it from state", "-1003333333333" in bot.STATE["groups"])
+    ctx.bot.member_errors = {}
+    bot.STATE["groups"].pop("-1003333333333")
+
+    bot.STATE["groups"]["-1004444444444"] = {"title": "Gone", "type": "group"}
+    ctx.bot.membership[-1004444444444] = "member"
+    await bot.on_button(Update(teacher, query=Query(f"rep:{today}", Message(message_id=91))), ctx)
+    rid = max(ctx.bot_data["reports"])
+    ctx.bot.send_fail = {-1004444444444: Forbidden("Forbidden: bot was kicked from the group chat")}
+    sq2 = Query(f"snd:{today}:-1004444444444", Message(message_id=rid))
+    await bot.on_button(Update(teacher, query=sq2), ctx)
+    check("a failed send drops the group", "-1004444444444" not in bot.STATE["groups"])
+    check("the user is told why", any("not in Gone any more" in (a or "") for a in sq2.alerts))
+    check("the dead button disappears", "📤 Send to Gone" not in labels(sq2.markup_edits[-1]))
+    ctx.bot.send_fail = {}
+
+    bot.STATE["groups"]["-1005555555555"] = {"title": "Upgraded", "type": "group"}
+    ctx.bot.membership[-1005555555555] = "member"
+    await bot.on_button(Update(teacher, query=Query(f"rep:{today}", Message(message_id=92))), ctx)
+    rid = max(ctx.bot_data["reports"])
+    ctx.bot.migrate = {-1005555555555: -1009999999999}
+    sq3 = Query(f"snd:{today}:-1005555555555", Message(message_id=rid))
+    await bot.on_button(Update(teacher, query=sq3), ctx)
+    check("a migrated group moves to its new id",
+          "-1009999999999" in bot.STATE["groups"] and "-1005555555555" not in bot.STATE["groups"])
+    check("and the report still arrives", ctx.bot.photos[-1]["chat_id"] == -1009999999999)
+
+    bot.STATE["groups"] = {"-1001234567890": {"title": "10-A Parents 2026", "type": "supergroup"}}
+    ctx.bot.membership = {}
+    storage.save(bot.STATE)
 
     section("days off")
     bot.CONFIG["days_off"] = {"weekdays": ["sunday"], "dates": ["2026-09-23"]}

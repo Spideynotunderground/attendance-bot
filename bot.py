@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 from telegram import ChatMember, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, Forbidden, TelegramError
+from telegram.error import BadRequest, ChatMigrated, Forbidden, TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -329,10 +329,10 @@ def roster_text(day: str, status_line: str | None = None) -> str:
     return head + tail
 
 
-def report_markup(day: str, sent_to=()) -> InlineKeyboardMarkup | None:
+def report_markup(day: str, sent_to=(), groups=None) -> InlineKeyboardMarkup | None:
     """A "send to <group>" button per group the bot currently belongs to."""
     rows = []
-    for chat_id, group in STATE["groups"].items():
+    for chat_id, group in (STATE["groups"] if groups is None else groups).items():
         title = group.get("title") or "group"
         if chat_id in sent_to:
             rows.append([InlineKeyboardButton(f"✅ Sent to {title}", callback_data="noop")])
@@ -462,6 +462,66 @@ async def cmd_groups(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 # --------------------------------------------------------------------------
 
 JOINED = {ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER}
+
+# Telegram reports a chat we can no longer post in through several different
+# errors; any of these means the group should be forgotten.
+DEAD_CHAT_HINTS = (
+    "bot was kicked",
+    "bot is not a member",
+    "chat not found",
+    "have no rights",
+    "not enough rights",
+    "chat was deactivated",
+    "peer_id_invalid",
+)
+
+
+def is_dead_chat(exc: Exception) -> bool:
+    if isinstance(exc, Forbidden):
+        return True
+    return any(hint in str(exc).lower() for hint in DEAD_CHAT_HINTS)
+
+
+def forget_group(chat_id, why: str) -> None:
+    if STATE["groups"].pop(str(chat_id), None) is not None:
+        storage.save(STATE)
+        log.info("Dropped group %s: %s", chat_id, why)
+
+
+def migrate_group(old_id, new_id) -> None:
+    """A group upgraded to a supergroup keeps its identity but changes id."""
+    entry = STATE["groups"].pop(str(old_id), None)
+    if entry is not None:
+        entry["type"] = "supergroup"
+        STATE["groups"][str(new_id)] = entry
+        storage.save(STATE)
+        log.info("Group %s migrated to supergroup %s", old_id, new_id)
+
+
+async def live_groups(context: ContextTypes.DEFAULT_TYPE) -> dict:
+    """Groups the bot is *actually* still in, pruning any it was removed from.
+
+    my_chat_member tells us about removals, but only if the bot is running to
+    receive it — a removal during a redeploy would otherwise leave a button
+    that always fails. So membership is confirmed before the buttons are drawn.
+    """
+    live = {}
+    for chat_id in list(STATE["groups"]):
+        try:
+            member = await context.bot.get_chat_member(int(chat_id), context.bot.id)
+        except TelegramError as exc:
+            if is_dead_chat(exc):
+                forget_group(chat_id, str(exc))
+            else:
+                # Transient failure — keep the group rather than lose it.
+                log.warning("Could not verify group %s: %s", chat_id, exc)
+                live[chat_id] = STATE["groups"][chat_id]
+            continue
+        if member.status in JOINED:
+            live[chat_id] = STATE["groups"][chat_id]
+        else:
+            forget_group(chat_id, f"membership is {member.status}")
+    return live
 
 
 async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -645,7 +705,7 @@ async def send_report(update: Update, context: ContextTypes.DEFAULT_TYPE, day: s
     absent = absent_on(day)
     roster = students()
     caption = report_caption(day)
-    markup = report_markup(day)
+    markup = report_markup(day, groups=await live_groups(context))
     if markup is None:
         caption += "\n\n<i>Add me to a group to send reports there.</i>"
 
@@ -728,20 +788,29 @@ async def send_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE,
                         day: str, chat_id: str) -> None:
     query = update.callback_query
     user = update.effective_user
+    record = context.bot_data.get("reports", {}).get(query.message.message_id)
+
+    async def refresh_buttons() -> None:
+        sent_to = record["sent_to"] if record else []
+        try:
+            await query.edit_message_reply_markup(reply_markup=report_markup(day, sent_to))
+        except BadRequest:
+            pass
+
     group = STATE["groups"].get(chat_id)
     if group is None:
-        await query.answer("I'm no longer in that group.", show_alert=True)
+        await query.answer("I'm not in that group any more.", show_alert=True)
+        await refresh_buttons()
         return
 
     title = group.get("title") or "the group"
-    record = context.bot_data.get("reports", {}).get(query.message.message_id)
     caption = f"{report_caption(day)}\n\n<i>Sent by {html.escape(who(user))}</i>"
 
-    try:
+    async def deliver(target: int) -> None:
         if record and record.get("file_id"):
             await context.bot.send_photo(
-                int(chat_id), photo=record["file_id"],
-                caption=caption, parse_mode=ParseMode.HTML,
+                target, photo=record["file_id"], caption=caption,
+                parse_mode=ParseMode.HTML,
             )
         else:
             # Bot restarted since the report was posted — render it again.
@@ -750,18 +819,27 @@ async def send_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 when=day_as_datetime(day), marked_by=who(user), generated_at=now(),
             )
             await context.bot.send_photo(
-                int(chat_id), photo=image, caption=caption, parse_mode=ParseMode.HTML
+                target, photo=image, caption=caption, parse_mode=ParseMode.HTML
             )
-    except Forbidden:
-        await query.answer(
-            f"I can't post in {title} — check I'm still a member and allowed "
-            "to send messages there.",
-            show_alert=True,
-        )
-        return
+
+    try:
+        try:
+            await deliver(int(chat_id))
+        except ChatMigrated as exc:
+            # The group became a supergroup and its id changed underneath us.
+            migrate_group(chat_id, exc.new_chat_id)
+            chat_id = str(exc.new_chat_id)
+            await deliver(int(chat_id))
     except TelegramError as exc:
-        log.warning("Sending report to %s failed: %s", chat_id, exc)
-        await query.answer(f"Couldn't send to {title}: {exc}", show_alert=True)
+        if is_dead_chat(exc):
+            forget_group(chat_id, str(exc))
+            await query.answer(
+                f"I'm not in {title} any more — removing that button.", show_alert=True
+            )
+        else:
+            log.warning("Sending report to %s failed: %s", chat_id, exc)
+            await query.answer(f"Couldn't send to {title}: {exc}", show_alert=True)
+        await refresh_buttons()
         return
 
     await query.answer(f"Sent to {title} ✅")
@@ -795,6 +873,8 @@ async def broadcast_text(context: ContextTypes.DEFAULT_TYPE, chat_ids, text: str
             sent += 1
         except TelegramError as exc:
             log.warning("Broadcast to %s failed: %s", chat_id, exc)
+            if chat_id < 0 and is_dead_chat(exc):
+                forget_group(chat_id, str(exc))
     return sent
 
 
@@ -815,6 +895,8 @@ async def broadcast_photo(context: ContextTypes.DEFAULT_TYPE, chat_ids, image,
             sent += 1
         except TelegramError as exc:
             log.warning("Broadcast to %s failed: %s", chat_id, exc)
+            if chat_id < 0 and is_dead_chat(exc):
+                forget_group(chat_id, str(exc))
     return sent
 
 

@@ -65,6 +65,12 @@ the caption says so rather than passing off the default as a real record.
 and the same image is posted there, captioned with who sent it; the button then
 reads `✅ Sent to <group>` so you can see what already went out.
 
+Before the buttons are drawn the bot confirms it is still a member of each
+group, so a group it was removed from never shows a button that would fail. If a
+send fails anyway — removed between the check and the tap — the group is dropped
+and the button disappears. A group upgraded to a supergroup is followed to its
+new id rather than lost.
+
 Telegram gives bots no way to list the chats they are in, so the bot learns its
 groups two ways: it is told immediately when someone **adds it to a group**, and
 it registers any **group it already sits in** the first time it sees a message
