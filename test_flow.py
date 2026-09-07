@@ -6,6 +6,7 @@ Run:  .venv/bin/python test_flow.py
 """
 
 import asyncio
+import datetime as dt
 import os
 import tempfile
 
@@ -31,10 +32,14 @@ class Message:
     def __init__(self, text=None, chat_id=999, message_id=1):
         self.text, self.chat_id, self.message_id = text, chat_id, message_id
         self.sent = []
+        self.deleted = False
 
     async def reply_text(self, text, **kw):
         self.sent.append(text)
         return Message()
+
+    async def delete(self):
+        self.deleted = True
 
 
 class Photo:
@@ -89,7 +94,7 @@ class MemberChange:
 
 class Bot_:
     def __init__(self):
-        self.photos, self.docs, self.edits = [], [], []
+        self.photos, self.docs, self.edits, self.messages = [], [], [], []
         self._n = 100
 
     async def send_photo(self, chat_id, photo, caption=None, reply_markup=None, **kw):
@@ -106,6 +111,11 @@ class Bot_:
 
     async def send_document(self, chat_id, document, **kw):
         self.docs.append(document.name)
+
+    async def send_message(self, chat_id, text, reply_markup=None, **kw):
+        self._n += 1
+        self.messages.append({"chat_id": chat_id, "text": text, "markup": reply_markup})
+        return Message(text, chat_id=chat_id, message_id=self._n)
 
     async def edit_message_text(self, text, chat_id=None, message_id=None,
                                 reply_markup=None, **kw):
@@ -197,7 +207,8 @@ async def main():
     m = Message("hi")
     await bot.on_text(Update(teacher, message=m), ctx)
     check("verified user gets the menu", "verified" in m.sent[0].lower())
-    check("menu has one button", labels(bot.menu_markup()) == ["📋 Mark students' attendance"])
+    check("menu has both buttons", labels(bot.menu_markup()) ==
+          ["📋 Mark students' attendance", "👁 View marked attendance list"])
 
     q = Query("mark")
     await bot.on_button(Update(teacher, query=q), ctx)
@@ -225,12 +236,38 @@ async def main():
     q = Query("menu")
     await bot.on_button(Update(teacher, query=q), ctx)
     check("go back returns to the menu",
-          labels(q.markups[0]) == ["📋 Mark students' attendance"])
+          labels(q.markups[0])[0] == "📋 Mark students' attendance")
 
     q = Query("mark", Message(chat_id=999, message_id=55))
     await bot.on_button(Update(teacher, query=q), ctx)
     check("marks persist across screens",
           labels(q.markups[0])[:3] == ["❌ Alice Brown", "Bob Carter", "❌ Chen Wei"])
+
+    section("view marked attendance list (Task 1)")
+    before = len(ctx.bot.photos)
+    vq = Query("view", Message(chat_id=999, message_id=70))
+    await bot.on_button(Update(teacher, query=vq), ctx)
+    check("view sends a picture", len(ctx.bot.photos) == before + 1)
+    pic = ctx.bot.photos[-1]
+    check("the picture is a real PNG", pic["name"].endswith(".png") and pic["size"] > 5000)
+    check("exactly two buttons under it", labels(pic["markup"]) == ["✏️ Change", "👌 OK"])
+    check("caption reports the marked figures",
+          "Present: <b>1</b>" in pic["caption"] and "Absent: <b>2</b>" in pic["caption"])
+
+    cq = Query("chg", Message(chat_id=999, message_id=71))
+    await bot.on_button(Update(teacher, query=cq), ctx)
+    check("Change removes the picture", cq.message.deleted)
+    roster_msg = ctx.bot.messages[-1]
+    check("Change opens the roster", "Tap a name to toggle" in roster_msg["text"])
+    check("Change keeps the existing marks",
+          labels(roster_msg["markup"])[:3] == ["❌ Alice Brown", "Bob Carter", "❌ Chen Wei"])
+
+    okq = Query("ok", Message(chat_id=999, message_id=72))
+    await bot.on_button(Update(teacher, query=okq), ctx)
+    check("OK removes the picture", okq.message.deleted)
+    check("OK returns to the main menu",
+          labels(ctx.bot.messages[-1]["markup"]) ==
+          ["📋 Mark students' attendance", "👁 View marked attendance list"])
 
     section("Uzbekistan time")
     check("timezone is Asia/Tashkent", str(bot.TZ) == "Asia/Tashkent")
@@ -364,6 +401,116 @@ async def main():
     check("/reset clears today", bot.absent_today() == [])
     check("/reset does not touch sealed days",
           bot.STATE["attendance"][yesterday] == ["Bob Carter"])
+
+    section("timetable formatting and days off (Task 4)")
+    check("three lessons use an Oxford comma",
+          bot.format_lessons(["Math", "Math", "English"]) == "Math, Math, and English")
+    check("two lessons join with 'and'",
+          bot.format_lessons(["Math", "English"]) == "Math and English")
+    check("one lesson stands alone", bot.format_lessons(["Math"]) == "Math")
+    check("no lessons reads sensibly", bot.format_lessons([]) == "no lessons")
+
+    bot.CONFIG["days_off"] = {"weekdays": ["sunday"], "dates": ["2026-09-23"]}
+    bot.CONFIG["timetable"] = {"tuesday": ["Physics", "English", "History"], "sunday": []}
+    check("Sunday is a day off", bot.is_day_off(dt.date(2026, 9, 20)))
+    check("Monday is not", not bot.is_day_off(dt.date(2026, 9, 21)))
+    check("a one-off holiday is a day off", bot.is_day_off(dt.date(2026, 9, 23)))
+    check("lessons are looked up by weekday name",
+          bot.lessons_for(dt.date(2026, 9, 15)) == ["Physics", "English", "History"])
+
+    section("scheduled jobs")
+    real_now = bot.now
+
+    def freeze(y, mo, d, h, mi=0):
+        bot.now = lambda: dt.datetime(y, mo, d, h, mi, tzinfo=bot.TZ)
+
+    # -- Task 4: tomorrow's lessons, sent the evening before
+    freeze(2026, 9, 14, 21)                       # Monday 21:00 -> Tuesday
+    before = len(ctx.bot.messages)
+    await bot.job_tomorrow_schedule(ctx)
+    sched = ctx.bot.messages[-1]
+    check("schedule goes to the group", sched["chat_id"] == -1001234567890)
+    check("schedule names tomorrow and its lessons",
+          "Tuesday:" in sched["text"] and "Physics, English, and History" in sched["text"])
+    check("schedule goes only to groups",
+          len(ctx.bot.messages) == before + len(bot.group_chats()))
+
+    freeze(2026, 9, 19, 21)                       # Saturday -> Sunday is off
+    before = len(ctx.bot.messages)
+    await bot.job_tomorrow_schedule(ctx)
+    check("nothing sent the evening before a day off", len(ctx.bot.messages) == before)
+
+    freeze(2026, 9, 15, 21)                       # Tuesday -> Wednesday untimetabled
+    before = len(ctx.bot.messages)
+    await bot.job_tomorrow_schedule(ctx)
+    check("nothing sent when no lessons are timetabled", len(ctx.bot.messages) == before)
+
+    # -- Task 3: the unmarked-attendance nudge
+    freeze(2026, 9, 15, 9, 40)                    # a Tuesday
+    bot.STATE["marked"].pop("2026-09-15", None)
+    before = len(ctx.bot.messages)
+    await bot.job_unmarked_reminder(ctx)
+    check("reminder reaches every verified user",
+          len(ctx.bot.messages) == before + len(bot.private_chats()))
+    check("reminder says what it should",
+          "You haven't marked attendance" in ctx.bot.messages[-1]["text"])
+    check("reminder goes to private chats, not groups",
+          all(m["chat_id"] > 0 for m in ctx.bot.messages[before:]))
+
+    bot.mark_touched("2026-09-15", teacher.id)
+    before = len(ctx.bot.messages)
+    await bot.job_unmarked_reminder(ctx)
+    check("silent once the register has been taken", len(ctx.bot.messages) == before)
+
+    freeze(2026, 9, 20, 9, 40)                    # Sunday
+    bot.STATE["marked"].pop("2026-09-20", None)
+    before = len(ctx.bot.messages)
+    await bot.job_unmarked_reminder(ctx)
+    check("silent on a day off", len(ctx.bot.messages) == before)
+
+    # -- Task 2: Monday morning weekly statistics
+    for d, absents in {"2026-09-07": ["Alice Brown", "Bob Carter"],
+                       "2026-09-08": ["Alice Brown"],
+                       "2026-09-09": []}.items():
+        bot.STATE["attendance"][d] = absents
+        bot.mark_touched(d, teacher.id)
+    bot.STATE["attendance"]["2026-09-10"] = ["Chen Wei"]     # never marked
+    bot.STATE["marked"].pop("2026-09-10", None)
+
+    counts, days = bot.week_absences(dt.date(2026, 9, 7), dt.date(2026, 9, 13))
+    check("only days with a register are counted", days == 3)
+    check("absences tally correctly", counts == {"Alice Brown": 2, "Bob Carter": 1})
+    check("a day nobody marked is excluded", "Chen Wei" not in counts)
+
+    freeze(2026, 9, 14, 9)                        # Monday 09:00
+    before = len(ctx.bot.photos)
+    await bot.job_weekly_stats(ctx)
+    expected = len(bot.private_chats()) + len(bot.group_chats())
+    check("stats reach every user and every group",
+          len(ctx.bot.photos) == before + expected)
+    check("stats caption names the week",
+          "Weekly attendance" in ctx.bot.photos[-1]["caption"])
+    check("stats cover last Mon-Sun, not this week",
+          "07 Sep" in ctx.bot.photos[-1]["caption"] and "13 Sep" in ctx.bot.photos[-1]["caption"])
+    check("the image is uploaded once then reused by file_id",
+          ctx.bot.photos[before]["name"].endswith(".png")
+          and ctx.bot.photos[before + 1]["name"].startswith("FILEID"))
+
+    freeze(2026, 9, 15, 9)                        # Tuesday
+    before = len(ctx.bot.photos)
+    await bot.job_weekly_stats(ctx)
+    check("no stats on a non-Monday", len(ctx.bot.photos) == before)
+
+    freeze(2026, 9, 21, 9)                        # Monday, but no register last week
+    for d in list(bot.STATE["marked"]):
+        if "2026-09-1" in d:
+            bot.STATE["marked"].pop(d)
+    before = len(ctx.bot.photos)
+    await bot.job_weekly_stats(ctx)
+    check("no stats when the register was never taken",
+          len(ctx.bot.photos) == before)
+
+    bot.now = real_now
 
     print()
     if failures:

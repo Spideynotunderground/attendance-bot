@@ -41,8 +41,8 @@ so cloning the repo gives nobody a way in. See
 Need to onboard someone else later? Any verified user sends `/newcode` and the
 bot issues a fresh single-use code.
 
-**2. Menu.** A verified user sees exactly one button:
-`📋 Mark students' attendance`.
+**2. Menu.** A verified user sees two buttons: `📋 Mark students' attendance`
+and `👁 View marked attendance list`.
 
 **3. Roster.** Tapping it lists every student as a button.
 
@@ -54,7 +54,13 @@ bot issues a fresh single-use code.
   per student, present/absent/total counts, the date and who generated it.
 - `⬅️ Go back` → returns to the menu.
 
-**4. Sending a report to a group.** Every report arrives with a
+**4. Viewing what's been marked.** `👁 View marked attendance list` sends the
+picture of today's register with two buttons under it: `✏️ Change` reopens the
+roster with the current marks intact, and `👌 OK` returns to the menu. Both
+remove the picture so the chat stays tidy. If nobody has taken the register yet,
+the caption says so rather than passing off the default as a real record.
+
+**5. Sending a report to a group.** Every report arrives with a
 `📤 Send to <group>` button for each Telegram group the bot belongs to. Tap one
 and the same image is posted there, captioned with who sent it; the button then
 reads `✅ Sent to <group>` so you can see what already went out.
@@ -65,6 +71,50 @@ it registers any **group it already sits in** the first time it sees a message
 there — so if you added it before starting the bot, just send `/start` in that
 group once. Removing the bot from a group drops it from the list. `/groups`
 shows what it currently knows.
+
+## Scheduled messages
+
+All times are **Asia/Tashkent**. Nothing is sent on a day off.
+
+| When | What | Where |
+|---|---|---|
+| Mondays 09:00 | Weekly statistics for the previous Mon–Sun | Every verified user **and** every group |
+| Daily 09:40 and 11:10 | "You haven't marked attendance" — only if the register is untaken | Every verified user |
+| Daily 21:00 | Tomorrow's lessons, e.g. `Tuesday: Physics, English, and History` | Every group |
+| Daily 00:00 | Day rollover (below) | — |
+
+**Weekly statistics** rank the students with the most absences and list those
+with perfect attendance, over the previous Monday–Sunday. Only days where the
+register was actually taken are counted, so a week of holidays doesn't read as
+perfect attendance for everyone. If no register was taken all week, nothing is
+sent.
+
+**The reminder** distinguishes "nobody marked anything" from "everyone turned
+up" — an empty absent list means both, so the bot records separately whether
+someone actually took the register. Toggling a student or generating a report
+counts as taking it; merely viewing the list does not.
+
+**Days off** are configured in `config.json`:
+
+```json
+"days_off": {
+  "weekdays": ["sunday"],
+  "dates": ["2026-09-23"]
+}
+```
+
+`weekdays` repeats every week; `dates` are one-off holidays. On a day off there
+is no reminder and no weekly stats, and no schedule is sent the evening before.
+
+**The timetable** is a list of lessons per weekday. Repeat a subject to show it
+twice; an empty list means no message that evening.
+
+```json
+"timetable": {
+  "monday": ["Math", "Math", "English"],
+  "sunday": []
+}
+```
 
 ## The day rolls over at midnight, Tashkent time
 
@@ -99,6 +149,8 @@ labelled `🔒 Closed — final.` The full history is kept in `data.json`.
 |---|---|
 | `group_name` | Shown in the report header |
 | `students` | Your roster. Edit this list — button order follows it |
+| `timetable` | Lessons per weekday, sent to groups the evening before |
+| `days_off` | Weekly days off and one-off holidays |
 
 Environment variables (`.env` locally, host settings on a server):
 

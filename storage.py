@@ -29,6 +29,8 @@ EMPTY_STATE = {
     "groups": {},
     # str(user_id) -> {"chat_id", "message_id", "day"} of their open roster screen
     "open_screens": {},
+    # "YYYY-MM-DD" -> {"by", "at"} for days the register was actually taken
+    "marked": {},
 }
 
 

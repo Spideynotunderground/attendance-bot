@@ -21,7 +21,7 @@ import logging
 import os
 import secrets
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -80,6 +80,29 @@ def pretty_day(day: str) -> str:
     return day_as_datetime(day).strftime("%A, %d %B %Y")
 
 
+def is_day_off(d) -> bool:
+    """Weekly day off, or a one-off holiday listed in config.json."""
+    cfg = CONFIG.get("days_off") or {}
+    if d.strftime("%A").lower() in [w.lower() for w in cfg.get("weekdays", [])]:
+        return True
+    return d.isoformat() in (cfg.get("dates") or [])
+
+
+def lessons_for(d) -> list:
+    return (CONFIG.get("timetable") or {}).get(d.strftime("%A").lower(), [])
+
+
+def format_lessons(lessons: list) -> str:
+    """["Math", "Math", "English"] -> "Math, Math, and English"."""
+    if not lessons:
+        return "no lessons"
+    if len(lessons) == 1:
+        return lessons[0]
+    if len(lessons) == 2:
+        return f"{lessons[0]} and {lessons[1]}"
+    return ", ".join(lessons[:-1]) + ", and " + lessons[-1]
+
+
 # --------------------------------------------------------------------------
 # config / state helpers
 # --------------------------------------------------------------------------
@@ -132,6 +155,20 @@ def absent_on(day: str) -> list:
 
 def absent_today() -> list:
     return absent_on(today_key())
+
+
+def mark_touched(day: str, user_id: int) -> None:
+    """Record that someone actually took the register for `day`.
+
+    Without this an untouched sheet and a day where everyone turned up look
+    identical — both have an empty absent list — and the reminder could not
+    tell them apart.
+    """
+    STATE["marked"][day] = {"by": user_id, "at": storage.now_iso()}
+
+
+def is_marked(day: str) -> bool:
+    return day in STATE["marked"]
 
 
 def is_sealed(day: str) -> bool:
@@ -263,9 +300,18 @@ MENU_TEXT = "✅ <b>You're verified.</b>\n\nWhat would you like to do?"
 
 
 def menu_markup() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("📋 Mark students' attendance", callback_data="mark")]]
-    )
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Mark students' attendance", callback_data="mark")],
+        [InlineKeyboardButton("👁 View marked attendance list", callback_data="view")],
+    ])
+
+
+def view_markup() -> InlineKeyboardMarkup:
+    """Shown under the attendance picture."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✏️ Change", callback_data="chg"),
+        InlineKeyboardButton("👌 OK", callback_data="ok"),
+    ]])
 
 
 def roster_markup(day: str) -> InlineKeyboardMarkup:
@@ -511,6 +557,32 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         remember_screen(user.id, query.message, day)
         return
 
+    if data == "view":
+        await query.answer("Loading…")
+        await send_attendance_view(update, context, today_key())
+        return
+
+    if data == "chg":
+        await query.answer()
+        day = today_key()
+        await drop_message(query)
+        msg = await context.bot.send_message(
+            update.effective_chat.id, roster_text(day),
+            reply_markup=roster_markup(day), parse_mode=ParseMode.HTML,
+        )
+        remember_screen(user.id, msg, day)
+        return
+
+    if data == "ok":
+        await query.answer()
+        forget_screen(user.id)
+        await drop_message(query)
+        await context.bot.send_message(
+            update.effective_chat.id, MENU_TEXT,
+            reply_markup=menu_markup(), parse_mode=ParseMode.HTML,
+        )
+        return
+
     if data.startswith("rep:"):
         await query.answer("Generating…")
         await send_report(update, context, data.split(":", 1)[1])
@@ -553,6 +625,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             absent.append(name)
             status = f"❌ <b>{html.escape(name)}</b> is absent"
             toast = f"{name} is absent"
+        mark_touched(day, user.id)
         storage.save(STATE)
 
         await query.answer(toast)
@@ -606,6 +679,9 @@ async def send_report(update: Update, context: ContextTypes.DEFAULT_TYPE, day: s
             "day": day,
             "sent_to": [],
         }
+        if not is_sealed(day):
+            mark_touched(day, user.id)
+            storage.save(STATE)
     except Exception:
         log.exception("Image report failed; falling back to a text file.")
         text = report.build_report_text(
@@ -617,6 +693,48 @@ async def send_report(update: Update, context: ContextTypes.DEFAULT_TYPE, day: s
         await context.bot.send_document(
             chat_id, document=buf, caption=caption,
             parse_mode=ParseMode.HTML, reply_markup=markup,
+        )
+
+
+async def drop_message(query) -> None:
+    """Remove a photo message; if that fails, at least strip its buttons."""
+    try:
+        await query.message.delete()
+    except TelegramError:
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except TelegramError:
+            pass
+
+
+async def send_attendance_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                               day: str) -> None:
+    """The picture behind "View marked attendance list", with Change / OK."""
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+    absent = absent_on(day)
+    roster = students()
+    caption = (
+        f"👁 <b>Marked attendance</b> — {html.escape(CONFIG['group_name'])}\n"
+        f"{pretty_day(day)}\n"
+        f"Present: <b>{len(roster) - len(absent)}</b>   Absent: <b>{len(absent)}</b>"
+    )
+    if not is_marked(day):
+        caption += ("\n\n⚠️ <i>Nobody has taken the register today yet — "
+                    "this shows the default, everyone present.</i>")
+    try:
+        image = report.build_report_image(
+            CONFIG["group_name"], roster, absent,
+            when=day_as_datetime(day), marked_by=who(user), generated_at=now(),
+        )
+        await context.bot.send_photo(
+            chat_id, photo=image, caption=caption,
+            parse_mode=ParseMode.HTML, reply_markup=view_markup(),
+        )
+    except Exception:
+        log.exception("View render failed; sending text instead.")
+        await context.bot.send_message(
+            chat_id, caption, parse_mode=ParseMode.HTML, reply_markup=view_markup()
         )
 
 
@@ -668,6 +786,128 @@ async def send_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await query.edit_message_reply_markup(reply_markup=report_markup(day, sent_to))
     except BadRequest:
         pass
+
+
+# --------------------------------------------------------------------------
+# scheduled broadcasts
+# --------------------------------------------------------------------------
+
+def private_chats() -> list:
+    """Verified users' private chats — a user id is their private chat id."""
+    return [int(uid) for uid in STATE["verified_users"]]
+
+
+def group_chats() -> list:
+    return [int(cid) for cid in STATE["groups"]]
+
+
+async def broadcast_text(context: ContextTypes.DEFAULT_TYPE, chat_ids, text: str) -> int:
+    sent = 0
+    for chat_id in chat_ids:
+        try:
+            await context.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
+            sent += 1
+        except TelegramError as exc:
+            log.warning("Broadcast to %s failed: %s", chat_id, exc)
+    return sent
+
+
+async def broadcast_photo(context: ContextTypes.DEFAULT_TYPE, chat_ids, image,
+                          caption: str) -> int:
+    """Upload the image once, then re-send it everywhere else by file_id."""
+    sent, file_id = 0, None
+    for chat_id in chat_ids:
+        try:
+            if file_id is None:
+                image.seek(0)
+            msg = await context.bot.send_photo(
+                chat_id, photo=(file_id or image), caption=caption,
+                parse_mode=ParseMode.HTML,
+            )
+            if file_id is None and msg.photo:
+                file_id = msg.photo[-1].file_id
+            sent += 1
+        except TelegramError as exc:
+            log.warning("Broadcast to %s failed: %s", chat_id, exc)
+    return sent
+
+
+def week_absences(start, end) -> tuple:
+    """Absence counts across the days in [start, end] where a register exists."""
+    counts, days = {}, 0
+    day = start
+    while day <= end:
+        key = day.isoformat()
+        if is_marked(key):
+            days += 1
+            for name in STATE["attendance"].get(key, []):
+                counts[name] = counts.get(name, 0) + 1
+        day += timedelta(days=1)
+    return counts, days
+
+
+async def job_weekly_stats(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mondays 09:00 Tashkent — last week's figures to everyone.
+
+    Runs daily and bails unless it is Monday, which avoids depending on how
+    the scheduler numbers weekdays.
+    """
+    today = now().date()
+    if today.weekday() != 0 or is_day_off(today):
+        return
+
+    end = today - timedelta(days=1)          # yesterday, i.e. Sunday
+    start = end - timedelta(days=6)          # the Monday before that
+    counts, days = week_absences(start, end)
+    if days == 0:
+        log.info("Weekly stats skipped: no register taken %s..%s", start, end)
+        return
+
+    caption = (
+        f"📊 <b>Weekly attendance</b> — {html.escape(CONFIG['group_name'])}\n"
+        f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}  ·  {days} school days"
+    )
+    targets = private_chats() + group_chats()
+    try:
+        image = report.build_week_stats_image(
+            CONFIG["group_name"], students(), counts, days, start, end, generated_at=now()
+        )
+        n = await broadcast_photo(context, targets, image, caption)
+    except Exception:
+        log.exception("Weekly stats image failed; sending text instead.")
+        body = report.build_week_stats_text(CONFIG["group_name"], counts, days, start, end)
+        n = await broadcast_text(context, targets, f"<pre>{html.escape(body)}</pre>")
+    log.info("Weekly stats sent to %d chat(s).", n)
+
+
+async def job_unmarked_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """09:40 and 11:10 Tashkent — nudge only if nobody has taken the register."""
+    today = now().date()
+    if is_day_off(today):
+        return
+    day = today.isoformat()
+    if is_marked(day):
+        return
+    n = await broadcast_text(
+        context, private_chats(),
+        f"⚠️ <b>You haven't marked attendance</b>\n{pretty_day(day)}",
+    )
+    log.info("Unmarked-attendance reminder sent to %d chat(s).", n)
+
+
+async def job_tomorrow_schedule(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """21:00 Tashkent — tomorrow's lessons to the groups, the evening before."""
+    tomorrow = now().date() + timedelta(days=1)
+    if is_day_off(tomorrow):
+        log.info("No schedule sent: %s is a day off.", tomorrow)
+        return
+    lessons = lessons_for(tomorrow)
+    if not lessons:
+        log.info("No schedule sent: nothing timetabled for %s.", tomorrow)
+        return
+    text = f"🗓 <b>{tomorrow.strftime('%A')}:</b> {html.escape(format_lessons(lessons))}"
+    n = await broadcast_text(context, group_chats(), text)
+    log.info("Tomorrow's schedule sent to %d group(s).", n)
 
 
 # --------------------------------------------------------------------------
@@ -736,11 +976,16 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.ChatType.GROUPS, on_group_activity), group=1)
     app.add_error_handler(on_error)
 
-    app.job_queue.run_daily(
-        midnight_rollover, time=dtime(hour=0, minute=0, tzinfo=TZ), name="midnight-rollover"
-    )
+    jq = app.job_queue
+    jq.run_daily(midnight_rollover, time=dtime(0, 0, tzinfo=TZ), name="midnight-rollover")
     # So a code appended to access_codes.txt over a shell goes live on its own.
-    app.job_queue.run_repeating(refresh_codes, interval=60, first=60, name="refresh-codes")
+    jq.run_repeating(refresh_codes, interval=60, first=60, name="refresh-codes")
+
+    # All local time. Each job checks days off for itself.
+    jq.run_daily(job_weekly_stats, time=dtime(9, 0, tzinfo=TZ), name="weekly-stats")
+    jq.run_daily(job_unmarked_reminder, time=dtime(9, 40, tzinfo=TZ), name="reminder-0940")
+    jq.run_daily(job_unmarked_reminder, time=dtime(11, 10, tzinfo=TZ), name="reminder-1110")
+    jq.run_daily(job_tomorrow_schedule, time=dtime(21, 0, tzinfo=TZ), name="tomorrow-schedule")
 
     log.info("Data directory: %s", storage.DATA_FILE.parent)
     log.info("Today in Tashkent is %s (now %s).", today_key(), now().strftime("%H:%M %Z"))

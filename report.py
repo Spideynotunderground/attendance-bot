@@ -181,3 +181,128 @@ def build_report_text(group_name, students, absent, when=None, generated_at=None
     lines += ["", "ABSENT:"]
     lines += [f"  - {n}" for n in absent_list] or ["  (none)"]
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# weekly statistics
+# --------------------------------------------------------------------------
+
+SECTION_H = 50
+STAT_ROW_H = 48
+AMBER = (217, 119, 6)
+
+
+def _section_label(draw, x, y, text, font, colour):
+    draw.text((x, y + SECTION_H / 2), text.upper(), font=font, fill=colour, anchor="lm")
+
+
+def build_week_stats_image(group_name, students, absences, days_counted,
+                           start, end, generated_at=None, top_n=5) -> io.BytesIO:
+    """`absences` maps student name -> days absent over the week."""
+    generated_at = generated_at or datetime.now()
+
+    ranked = sorted(
+        ((n, absences.get(n, 0)) for n in students),
+        key=lambda pair: (-pair[1], pair[0]),
+    )
+    worst = [(n, c) for n, c in ranked if c > 0][:top_n]
+    perfect = [n for n, c in ranked if c == 0]
+    perfect_shown = perfect[:top_n]
+
+    rows = max(len(worst), 1) + max(len(perfect_shown), 1)
+    overflow_note = 28 if len(perfect) > len(perfect_shown) else 0
+    height = (HEADER_H + SUMMARY_H + 2 * SECTION_H + rows * STAT_ROW_H
+              + FOOTER_H + 16 + overflow_note)
+
+    img = Image.new("RGB", (WIDTH, height), WHITE)
+    draw = ImageDraw.Draw(img)
+
+    f_title = _font(34, bold=True)
+    f_sub = _font(19)
+    f_pill = _font(18, bold=True)
+    f_section = _font(15, bold=True)
+    f_name = _font(22)
+    f_count = _font(18, bold=True)
+    f_small = _font(15)
+
+    draw.rectangle([0, 0, WIDTH, HEADER_H], fill=HEADER_BG)
+    draw.text((PAD, 40), "Weekly Attendance", font=f_title, fill=WHITE, anchor="lm")
+    span = f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}"
+    draw.text((PAD, 82), f"{group_name}  ·  {span}", font=f_sub,
+              fill=(190, 197, 208), anchor="lm")
+
+    total_absences = sum(absences.get(n, 0) for n in students)
+    y = HEADER_H + 26
+    x = _pill(draw, PAD, y, f"School days  {days_counted}", f_pill, (241, 245, 249), MUTED)
+    x = _pill(draw, x + 12, y, f"Absences  {total_absences}", f_pill, RED_SOFT, RED)
+    _pill(draw, x + 12, y, f"Perfect  {len(perfect)}", f_pill, GREEN_SOFT, GREEN)
+
+    y = HEADER_H + SUMMARY_H
+
+    _section_label(draw, PAD, y, "Most absences", f_section, RED)
+    y += SECTION_H
+    if worst:
+        for i, (name, count) in enumerate(worst):
+            if i % 2 == 1:
+                draw.rectangle([0, y, WIDTH, y + STAT_ROW_H], fill=ROW_ALT)
+            draw.line([(PAD, y), (WIDTH - PAD, y)], fill=LINE, width=1)
+            cy = y + STAT_ROW_H / 2
+            _draw_cross(draw, PAD + 12, cy, 11, RED)
+            draw.text((PAD + 36, cy), name, font=f_name, fill=INK, anchor="lm")
+            label = f"{count} day" if count == 1 else f"{count} days"
+            draw.text((WIDTH - PAD, cy), label, font=f_count,
+                      fill=RED if count > 1 else AMBER, anchor="rm")
+            y += STAT_ROW_H
+    else:
+        draw.line([(PAD, y), (WIDTH - PAD, y)], fill=LINE, width=1)
+        draw.text((PAD, y + STAT_ROW_H / 2), "Nobody was absent this week.",
+                  font=f_name, fill=MUTED, anchor="lm")
+        y += STAT_ROW_H
+
+    y += 16
+    heading = "Perfect attendance" if perfect else "Best attendance"
+    _section_label(draw, PAD, y, heading, f_section, GREEN)
+    y += SECTION_H
+    if perfect_shown:
+        for i, name in enumerate(perfect_shown):
+            if i % 2 == 1:
+                draw.rectangle([0, y, WIDTH, y + STAT_ROW_H], fill=ROW_ALT)
+            draw.line([(PAD, y), (WIDTH - PAD, y)], fill=LINE, width=1)
+            cy = y + STAT_ROW_H / 2
+            _draw_tick(draw, PAD + 12, cy, 11, GREEN)
+            draw.text((PAD + 36, cy), name, font=f_name, fill=INK, anchor="lm")
+            draw.text((WIDTH - PAD, cy), "no absences", font=f_count, fill=GREEN, anchor="rm")
+            y += STAT_ROW_H
+        if len(perfect) > len(perfect_shown):
+            draw.text((PAD, y + 6), f"…and {len(perfect) - len(perfect_shown)} more",
+                      font=f_small, fill=MUTED)
+    else:
+        draw.line([(PAD, y), (WIDTH - PAD, y)], fill=LINE, width=1)
+        draw.text((PAD, y + STAT_ROW_H / 2), "Everyone missed at least one day.",
+                  font=f_name, fill=MUTED, anchor="lm")
+        y += STAT_ROW_H
+
+    fy = height - FOOTER_H
+    draw.line([(PAD, fy), (WIDTH - PAD, fy)], fill=LINE, width=1)
+    draw.text((PAD, fy + FOOTER_H / 2),
+              f"Generated {generated_at.strftime('%d %b %Y, %H:%M')}",
+              font=f_small, fill=MUTED, anchor="lm")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    buf.name = f"weekly-{start.strftime('%Y-%m-%d')}.png"
+    return buf
+
+
+def build_week_stats_text(group_name, absences, days_counted, start, end) -> str:
+    ranked = sorted(absences.items(), key=lambda p: (-p[1], p[0]))
+    worst = [(n, c) for n, c in ranked if c > 0][:5]
+    lines = [
+        f"Weekly attendance — {group_name}",
+        f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}  ({days_counted} school days)",
+        "",
+        "Most absences:",
+    ]
+    lines += [f"  {n}: {c}" for n, c in worst] or ["  (nobody was absent)"]
+    return "\n".join(lines)
