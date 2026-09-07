@@ -34,17 +34,9 @@ Send `/start`, then send the code as a plain message. The moment a code verifies
 an account it is burned — the same code can never verify a second person. The
 user's Telegram ID is stored in `data.json` and they are never asked again.
 
-Starting codes (in `config.json`):
-
-```
-ADMIN-4F7K2
-ADMIN-9QX3M
-ADMIN-B6R8T
-ADMIN-6YG5U
-```
-
-All codes behave identically — the `ADMIN-` prefix is just a label for your own
-bookkeeping, the bot has no separate permission levels.
+**Access codes never appear in this repository.** They live on the server only,
+so cloning the repo gives nobody a way in. See
+[Managing access codes](#managing-access-codes).
 
 Need to onboard someone else later? Any verified user sends `/newcode` and the
 bot issues a fresh single-use code.
@@ -107,7 +99,6 @@ labelled `🔒 Closed — final.` The full history is kept in `data.json`.
 |---|---|
 | `group_name` | Shown in the report header |
 | `students` | Your roster. Edit this list — button order follows it |
-| `initial_access_codes` | Codes seeded on startup. New entries are added; already-used ones are never revived |
 
 Environment variables (`.env` locally, host settings on a server):
 
@@ -115,6 +106,7 @@ Environment variables (`.env` locally, host settings on a server):
 |---|---|
 | `BOT_TOKEN` | **Required.** Bot token from @BotFather |
 | `DATA_DIR` | Where `data.json` lives. Set to the mounted volume on a server |
+| `ACCESS_CODES` | One-time access codes, comma- or space-separated |
 | `PROXY_URL` | Only if your network blocks Telegram (see below) |
 | `GROUP_NAME` | Overrides `group_name` from `config.json` |
 
@@ -146,6 +138,59 @@ curl -s -m 10 "https://api.telegram.org/bot<TOKEN>/getMe"
 ```
 
 A JSON response means you are good to go.
+
+## Managing access codes
+
+Codes are deliberately kept out of git. The bot reads them from two places on
+the server, and registers anything new it finds:
+
+1. **`ACCESS_CODES`** — an environment variable, comma- or space-separated.
+2. **`access_codes.txt`** — a file on the persistent disk (`$DATA_DIR`), one
+   code per line. `#` starts a comment.
+
+A code that has already been redeemed is never revived by either source, so it
+is safe to leave spent codes in the list.
+
+### Adding codes on Render
+
+Open your service → **Shell**, then:
+
+```bash
+echo "MYCODE-2026-A" >> /data/access_codes.txt
+```
+
+The bot re-reads that file **once a minute**, so the code goes live on its own —
+no restart, no redeploy. Add several at once:
+
+```bash
+cat >> /data/access_codes.txt <<'EOF'
+DIRECTOR-7K2M9
+TEACHER-X4P1Q
+EOF
+```
+
+To see what exists and what has been used:
+
+```bash
+cat /data/access_codes.txt
+python -c "import json;d=json.load(open('/data/data.json'));[print(c, v['used_by'] or 'unused') for c,v in d['codes'].items()]"
+```
+
+The environment-variable route works too — service → **Environment** → set
+`ACCESS_CODES` → save. That restarts the service, so the file is the smoother
+option for day-to-day additions.
+
+### The first code on a fresh deployment
+
+If neither source is set and no codes exist yet, the bot mints three at startup
+and prints them as a warning in the logs:
+
+```
+No ACCESS_CODES set. Generated bootstrap codes: CODE-4F7K2A, CODE-9QX3MB, CODE-B6R8TC
+```
+
+Read them out of the Render log, redeem one, then add your own with the file.
+They exist nowhere else — not in the repo, not in the image.
 
 ## Deploying to Render
 
@@ -184,7 +229,7 @@ stored in git). Paste the token from BotFather. Deploy.
 Check the Render logs — a healthy start looks like:
 
 ```
-Unused access codes: ADMIN-4F7K2, ADMIN-9QX3M, ...
+Unused access codes: <your codes>
 Today in Tashkent is 2026-09-07 (now 14:12 +05).
 Bot is running.
 Application started

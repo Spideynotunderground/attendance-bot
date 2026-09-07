@@ -144,27 +144,69 @@ def make_code() -> str:
     return "CODE-" + "".join(secrets.choice(alphabet) for _ in range(6))
 
 
-def seed_codes() -> None:
-    """Add codes listed in config.json that we haven't seen before."""
-    configured = CONFIG.get("initial_access_codes") or []
+def codes_file() -> Path:
+    """Live on the persistent disk, so codes are added server-side, not in git."""
+    return storage.DATA_FILE.parent / "access_codes.txt"
+
+
+def read_configured_codes() -> list:
+    """Access codes come from the server only — never from the repo.
+
+    Two sources, both editable with shell access and neither in version control:
+      * ACCESS_CODES env var, comma- or whitespace-separated
+      * access_codes.txt on the persistent disk, one code per line
+    """
+    raw = os.environ.get("ACCESS_CODES", "")
+    found = [c.strip() for c in raw.replace(",", " ").split()]
+
+    path = codes_file()
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                found.append(line)
+    return [c for c in found if c]
+
+
+def seed_codes(quiet: bool = False) -> list:
+    """Register any configured code we haven't seen. Used codes are never revived."""
+    configured = read_configured_codes()
+
+    # Nothing configured anywhere and no codes yet: mint a bootstrap set so a
+    # fresh deployment is usable. They appear in the logs and nowhere else.
+    generated = False
     if not configured and not STATE["codes"]:
         configured = [make_code() for _ in range(3)]
+        generated = True
+
     added = []
     for code in configured:
-        code = code.strip()
-        if code and code not in STATE["codes"]:
+        if code not in STATE["codes"]:
             STATE["codes"][code] = {
                 "created_at": storage.now_iso(),
                 "used_by": None,
                 "used_at": None,
             }
             added.append(code)
+
     if added:
         storage.save(STATE)
-        log.info("Seeded %d access code(s).", len(added))
+        if generated:
+            log.warning(
+                "No ACCESS_CODES set. Generated bootstrap codes: %s", ", ".join(added)
+            )
+        else:
+            log.info("Registered %d new access code(s): %s", len(added), ", ".join(added))
 
-    unused = [c for c, v in STATE["codes"].items() if v["used_by"] is None]
-    log.info("Unused access codes: %s", ", ".join(unused) if unused else "(none left)")
+    if not quiet:
+        unused = [c for c, v in STATE["codes"].items() if v["used_by"] is None]
+        log.info("Unused access codes: %s", ", ".join(unused) if unused else "(none left)")
+    return added
+
+
+async def refresh_codes(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Pick up codes appended to access_codes.txt without needing a restart."""
+    seed_codes(quiet=True)
 
 
 def is_verified(user_id: int) -> bool:
@@ -697,7 +739,10 @@ def main() -> None:
     app.job_queue.run_daily(
         midnight_rollover, time=dtime(hour=0, minute=0, tzinfo=TZ), name="midnight-rollover"
     )
+    # So a code appended to access_codes.txt over a shell goes live on its own.
+    app.job_queue.run_repeating(refresh_codes, interval=60, first=60, name="refresh-codes")
 
+    log.info("Data directory: %s", storage.DATA_FILE.parent)
     log.info("Today in Tashkent is %s (now %s).", today_key(), now().strftime("%H:%M %Z"))
     log.info("Bot is running. Press Ctrl-C to stop.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

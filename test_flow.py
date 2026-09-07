@@ -10,6 +10,7 @@ import os
 import tempfile
 
 os.environ.setdefault("BOT_TOKEN", "0:OFFLINE-TEST")
+os.environ["ACCESS_CODES"] = "TEST-AAA, TEST-BBB"
 from datetime import timedelta
 from pathlib import Path
 
@@ -149,8 +150,24 @@ async def main():
 
     teacher = User(1001, "Ms. Ivanova", "ivanova")
     intruder = User(2002, "Random Person")
-    code = bot.CONFIG["initial_access_codes"][0]
+    code = "TEST-AAA"
     today = bot.today_key()
+
+    section("access codes come from the server, not the repo")
+    check("codes are not stored in config.json",
+          "initial_access_codes" not in bot.CONFIG)
+    check("ACCESS_CODES env var is registered", "TEST-AAA" in bot.STATE["codes"])
+    check("every env code is registered", "TEST-BBB" in bot.STATE["codes"])
+
+    # A code appended to access_codes.txt on the persistent disk goes live
+    # without a restart — this is what the 60s refresh job calls.
+    bot.codes_file().write_text("DISK-CODE-1\n# a comment line\nDISK-CODE-2\n",
+                                encoding="utf-8")
+    added = bot.seed_codes(quiet=True)
+    check("codes dropped on the disk are picked up", set(added) == {"DISK-CODE-1", "DISK-CODE-2"})
+    check("comments in the file are ignored",
+          not any(c.startswith("#") for c in bot.STATE["codes"]))
+    check("re-reading the file adds nothing twice", bot.seed_codes(quiet=True) == [])
 
     section("verification")
     m = Message("/start")
@@ -335,6 +352,13 @@ async def main():
     m3 = Message(fresh)
     await bot.on_text(Update(User(3003, "Third"), message=m3), ctx)
     check("that code is now dead too", "already been used" in m3.sent[0])
+
+    m = Message("DISK-CODE-1")
+    await bot.on_text(Update(User(4004, "Fourth"), message=m), ctx)
+    check("a disk code verifies someone", bot.is_verified(4004))
+    bot.seed_codes(quiet=True)
+    check("re-seeding does not revive a spent disk code",
+          bot.STATE["codes"]["DISK-CODE-1"]["used_by"] == 4004)
 
     await bot.cmd_reset(Update(teacher, message=Message("/reset")), ctx)
     check("/reset clears today", bot.absent_today() == [])
