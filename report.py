@@ -6,6 +6,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+import ru
+
 # Shipped with the bot so the report looks identical on macOS and on a server,
 # and so Cyrillic always renders regardless of what the host has installed.
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
@@ -106,10 +108,10 @@ def build_report_image(group_name, students, absent, when=None, marked_by=None,
 
     # Header
     draw.rectangle([0, 0, WIDTH, HEADER_H], fill=HEADER_BG)
-    draw.text((PAD, 40), "Attendance Report", font=f_title, fill=WHITE, anchor="lm")
+    draw.text((PAD, 40), "Отчёт о посещаемости", font=f_title, fill=WHITE, anchor="lm")
     draw.text(
         (PAD, 82),
-        f"{group_name}  ·  {when.strftime('%A, %d %B %Y')}",
+        f"{group_name}  ·  {ru.day_full(when)}",
         font=f_sub,
         fill=(190, 197, 208),
         anchor="lm",
@@ -117,14 +119,14 @@ def build_report_image(group_name, students, absent, when=None, marked_by=None,
 
     # Summary pills
     y = HEADER_H + 26
-    x = _pill(draw, PAD, y, f"Present  {len(present)}", f_pill, GREEN_SOFT, GREEN)
-    x = _pill(draw, x + 12, y, f"Absent  {len(absent_list)}", f_pill, RED_SOFT, RED)
-    _pill(draw, x + 12, y, f"Total  {len(students)}", f_pill, (241, 245, 249), MUTED)
+    x = _pill(draw, PAD, y, f"Присутствуют  {len(present)}", f_pill, GREEN_SOFT, GREEN)
+    x = _pill(draw, x + 12, y, f"Отсутствуют  {len(absent_list)}", f_pill, RED_SOFT, RED)
+    _pill(draw, x + 12, y, f"Всего  {len(students)}", f_pill, (241, 245, 249), MUTED)
 
     # Rows
     top = HEADER_H + SUMMARY_H
     if not students:
-        draw.text((PAD, top + 30), "No students on the roster.", font=f_name, fill=MUTED)
+        draw.text((PAD, top + 30), "В списке нет учеников.", font=f_name, fill=MUTED)
     for i, name in enumerate(students):
         ry = top + i * ROW_H
         is_absent = name in absent_set
@@ -141,7 +143,7 @@ def build_report_image(group_name, students, absent, when=None, marked_by=None,
         draw.text((PAD + 40, cy), name, font=f_name, fill=INK, anchor="lm")
         draw.text(
             (WIDTH - PAD, cy),
-            "ABSENT" if is_absent else "PRESENT",
+            "ОТСУТСТВУЕТ" if is_absent else "ПРИСУТСТВУЕТ",
             font=f_status,
             fill=RED if is_absent else GREEN,
             anchor="rm",
@@ -150,15 +152,15 @@ def build_report_image(group_name, students, absent, when=None, marked_by=None,
     # Footer
     fy = top + len(students) * ROW_H
     draw.line([(PAD, fy), (WIDTH - PAD, fy)], fill=LINE, width=1)
-    stamp = f"Generated {generated_at.strftime('%d %b %Y, %H:%M')}"
+    stamp = f"Сформировано {ru.stamp(generated_at)}"
     if marked_by:
-        stamp += f"  ·  by {marked_by}"
+        stamp += f"  ·  автор: {marked_by}"
     draw.text((PAD, fy + FOOTER_H / 2), stamp, font=f_small, fill=MUTED, anchor="lm")
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    buf.name = f"attendance-{when.strftime('%Y-%m-%d')}.png"
+    buf.name = f"посещаемость-{when.strftime('%Y-%m-%d')}.png"
     return buf
 
 
@@ -169,17 +171,17 @@ def build_report_text(group_name, students, absent, when=None, generated_at=None
     present = [s for s in students if s not in absent_set]
     absent_list = [s for s in students if s in absent_set]
     lines = [
-        f"Attendance Report — {group_name}",
-        when.strftime("%A, %d %B %Y, %H:%M"),
+        f"Отчёт о посещаемости — {group_name}",
+        ru.day_full(when),
         "",
-        f"Present: {len(present)} / {len(students)}",
-        f"Absent:  {len(absent_list)} / {len(students)}",
+        f"Присутствуют: {len(present)} / {len(students)}",
+        f"Отсутствуют:  {len(absent_list)} / {len(students)}",
         "",
-        "PRESENT:",
+        "ПРИСУТСТВУЮТ:",
     ]
-    lines += [f"  + {n}" for n in present] or ["  (none)"]
-    lines += ["", "ABSENT:"]
-    lines += [f"  - {n}" for n in absent_list] or ["  (none)"]
+    lines += [f"  + {n}" for n in present] or ["  (никого)"]
+    lines += ["", "ОТСУТСТВУЮТ:"]
+    lines += [f"  - {n}" for n in absent_list] or ["  (никого)"]
     return "\n".join(lines)
 
 
@@ -226,20 +228,20 @@ def build_week_stats_image(group_name, students, absences, days_counted,
     f_small = _font(15)
 
     draw.rectangle([0, 0, WIDTH, HEADER_H], fill=HEADER_BG)
-    draw.text((PAD, 40), "Weekly Attendance", font=f_title, fill=WHITE, anchor="lm")
-    span = f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}"
+    draw.text((PAD, 40), "Посещаемость за неделю", font=f_title, fill=WHITE, anchor="lm")
+    span = f"{ru.date_short(start, year=False)} – {ru.date_short(end)}"
     draw.text((PAD, 82), f"{group_name}  ·  {span}", font=f_sub,
               fill=(190, 197, 208), anchor="lm")
 
     total_absences = sum(absences.get(n, 0) for n in students)
     y = HEADER_H + 26
-    x = _pill(draw, PAD, y, f"School days  {days_counted}", f_pill, (241, 245, 249), MUTED)
-    x = _pill(draw, x + 12, y, f"Absences  {total_absences}", f_pill, RED_SOFT, RED)
-    _pill(draw, x + 12, y, f"Perfect  {len(perfect)}", f_pill, GREEN_SOFT, GREEN)
+    x = _pill(draw, PAD, y, f"Учебных дней  {days_counted}", f_pill, (241, 245, 249), MUTED)
+    x = _pill(draw, x + 12, y, f"Пропусков  {total_absences}", f_pill, RED_SOFT, RED)
+    _pill(draw, x + 12, y, f"Без пропусков  {len(perfect)}", f_pill, GREEN_SOFT, GREEN)
 
     y = HEADER_H + SUMMARY_H
 
-    _section_label(draw, PAD, y, "Most absences", f_section, RED)
+    _section_label(draw, PAD, y, "Больше всего пропусков", f_section, RED)
     y += SECTION_H
     if worst:
         for i, (name, count) in enumerate(worst):
@@ -249,18 +251,18 @@ def build_week_stats_image(group_name, students, absences, days_counted,
             cy = y + STAT_ROW_H / 2
             _draw_cross(draw, PAD + 12, cy, 11, RED)
             draw.text((PAD + 36, cy), name, font=f_name, fill=INK, anchor="lm")
-            label = f"{count} day" if count == 1 else f"{count} days"
+            label = ru.days(count)
             draw.text((WIDTH - PAD, cy), label, font=f_count,
                       fill=RED if count > 1 else AMBER, anchor="rm")
             y += STAT_ROW_H
     else:
         draw.line([(PAD, y), (WIDTH - PAD, y)], fill=LINE, width=1)
-        draw.text((PAD, y + STAT_ROW_H / 2), "Nobody was absent this week.",
+        draw.text((PAD, y + STAT_ROW_H / 2), "На этой неделе пропусков не было.",
                   font=f_name, fill=MUTED, anchor="lm")
         y += STAT_ROW_H
 
     y += 16
-    heading = "Perfect attendance" if perfect else "Best attendance"
+    heading = "Без пропусков" if perfect else "Лучшая посещаемость"
     _section_label(draw, PAD, y, heading, f_section, GREEN)
     y += SECTION_H
     if perfect_shown:
@@ -271,27 +273,27 @@ def build_week_stats_image(group_name, students, absences, days_counted,
             cy = y + STAT_ROW_H / 2
             _draw_tick(draw, PAD + 12, cy, 11, GREEN)
             draw.text((PAD + 36, cy), name, font=f_name, fill=INK, anchor="lm")
-            draw.text((WIDTH - PAD, cy), "no absences", font=f_count, fill=GREEN, anchor="rm")
+            draw.text((WIDTH - PAD, cy), "без пропусков", font=f_count, fill=GREEN, anchor="rm")
             y += STAT_ROW_H
         if len(perfect) > len(perfect_shown):
-            draw.text((PAD, y + 6), f"…and {len(perfect) - len(perfect_shown)} more",
+            draw.text((PAD, y + 6), f"…и ещё {len(perfect) - len(perfect_shown)}",
                       font=f_small, fill=MUTED)
     else:
         draw.line([(PAD, y), (WIDTH - PAD, y)], fill=LINE, width=1)
-        draw.text((PAD, y + STAT_ROW_H / 2), "Everyone missed at least one day.",
+        draw.text((PAD, y + STAT_ROW_H / 2), "Каждый пропустил хотя бы один день.",
                   font=f_name, fill=MUTED, anchor="lm")
         y += STAT_ROW_H
 
     fy = height - FOOTER_H
     draw.line([(PAD, fy), (WIDTH - PAD, fy)], fill=LINE, width=1)
     draw.text((PAD, fy + FOOTER_H / 2),
-              f"Generated {generated_at.strftime('%d %b %Y, %H:%M')}",
+              f"Сформировано {ru.stamp(generated_at)}",
               font=f_small, fill=MUTED, anchor="lm")
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    buf.name = f"weekly-{start.strftime('%Y-%m-%d')}.png"
+    buf.name = f"посещаемость-неделя-{start.strftime('%Y-%m-%d')}.png"
     return buf
 
 
@@ -299,10 +301,10 @@ def build_week_stats_text(group_name, absences, days_counted, start, end) -> str
     ranked = sorted(absences.items(), key=lambda p: (-p[1], p[0]))
     worst = [(n, c) for n, c in ranked if c > 0][:5]
     lines = [
-        f"Weekly attendance — {group_name}",
-        f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}  ({days_counted} school days)",
+        f"Посещаемость за неделю — {group_name}",
+        f"{ru.date_short(start, year=False)} – {ru.date_short(end)}  ({ru.school_days(days_counted)})",
         "",
-        "Most absences:",
+        "Больше всего пропусков:",
     ]
-    lines += [f"  {n}: {c}" for n, c in worst] or ["  (nobody was absent)"]
+    lines += [f"  {n}: {ru.days(c)}" for n, c in worst] or ["  (пропусков не было)"]
     return "\n".join(lines)

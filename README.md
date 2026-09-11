@@ -1,5 +1,8 @@
 # Attendance Bot — @lyceuma_bot
 
+> The bot's entire interface — messages, buttons, alerts and the report
+> images — is in **Russian**. This README stays in English for maintainers.
+
 A Telegram bot that lets verified staff mark a group's attendance and export a
 report image.
 
@@ -41,8 +44,8 @@ so cloning the repo gives nobody a way in. See
 Need to onboard someone else later? Any verified user sends `/newcode` and the
 bot issues a fresh single-use code.
 
-**2. Menu.** A verified user sees two buttons: `📋 Mark students' attendance`
-and `👁 View marked attendance list`.
+**2. Menu.** A verified user sees two buttons: `📋 Отметить посещаемость`
+and `👁 Посмотреть отмеченную посещаемость`.
 
 **3. Roster.** Tapping it lists every student as a button.
 
@@ -50,20 +53,20 @@ and `👁 View marked attendance list`.
   **"{student} is absent"**.
 - Tap the same name again → the `❌` disappears and the message reads
   **"{student} is present"**.
-- `📄 Generate report` → the bot sends a PNG report: a green tick or red cross
+- `📄 Сформировать отчёт` → the bot sends a PNG report: a green tick or red cross
   per student, present/absent/total counts, the date and who generated it.
-- `⬅️ Go back` → returns to the menu.
+- `⬅️ Назад` → returns to the menu.
 
-**4. Viewing what's been marked.** `👁 View marked attendance list` sends the
-picture of today's register with two buttons under it: `✏️ Change` reopens the
-roster with the current marks intact, and `👌 OK` returns to the menu. Both
+**4. Viewing what's been marked.** `👁 Посмотреть отмеченную посещаемость` sends
+the picture of today's register with two buttons under it: `✏️ Изменить` reopens
+the roster with the current marks intact, and `👌 ОК` returns to the menu. Both
 remove the picture so the chat stays tidy. If nobody has taken the register yet,
 the caption says so rather than passing off the default as a real record.
 
 **5. Sending a report to a group.** Every report arrives with a
-`📤 Send to <group>` button for each Telegram group the bot belongs to. Tap one
+`📤 Отправить в «<group>»` button for each Telegram group the bot belongs to. Tap one
 and the same image is posted there, captioned with who sent it; the button then
-reads `✅ Sent to <group>` so you can see what already went out.
+reads `✅ Отправлено в «<group>»` so you can see what already went out.
 
 Before the buttons are drawn the bot confirms it is still a member of each
 group, so a group it was removed from never shows a button that would fail. If a
@@ -85,7 +88,7 @@ All times are **Asia/Tashkent**. Nothing is sent on a day off.
 | When | What | Where |
 |---|---|---|
 | Mondays 09:00 | Weekly statistics for the previous Mon–Sun | Every verified user **and** every group |
-| Daily 09:40 and 11:10 | "You haven't marked attendance" — only if the register is untaken | Every verified user |
+| Daily 09:40 and 11:10 | «Вы ещё не отметили посещаемость» — only if the register is untaken | Every verified user |
 | Daily 00:00 | Day rollover (below) | — |
 
 **Weekly statistics** rank the students with the most absences and list those
@@ -126,8 +129,8 @@ At `00:00` Tashkent:
   a name, the edit is refused with a notice and the screen switches to today.
   `/reset` clears today only and never touches a sealed day.
 
-Past days stay readable — `Generate report` on a sealed sheet still works and is
-labelled `🔒 Closed — final.` The full history is kept in `data.json`.
+Past days stay readable — `Сформировать отчёт` on a sealed sheet still works and
+is labelled `🔒 День закрыт — данные окончательные.` The full history is kept in `data.json`.
 
 ## Commands
 

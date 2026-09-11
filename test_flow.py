@@ -199,52 +199,52 @@ async def main():
     section("verification")
     m = Message("/start")
     await bot.cmd_start(Update(teacher, message=m), ctx)
-    check("unverified /start asks for a code", "access code" in m.sent[0])
+    check("unverified /start asks for a code", "код доступа" in m.sent[0])
 
     q = Query("mark")
     await bot.on_button(Update(teacher, query=q), ctx)
-    check("unverified button press blocked", "not verified" in (q.toasts[0] or ""))
+    check("unverified button press blocked", "не верифицированы" in (q.toasts[0] or ""))
     check("unverified press renders no screen", q.screens == [])
 
     m = Message("hunter2")
     await bot.on_text(Update(teacher, message=m), ctx)
-    check("wrong code rejected", "not a valid code" in m.sent[0])
+    check("wrong code rejected", "Неверный код" in m.sent[0])
 
     m = Message(code)
     await bot.on_text(Update(teacher, message=m), ctx)
     check("valid code verifies the user", bot.is_verified(teacher.id))
-    check("burn is announced", "used up" in m.sent[0])
+    check("burn is announced", "использован" in m.sent[0])
 
     m = Message(code)
     await bot.on_text(Update(intruder, message=m), ctx)
-    check("reused code rejected", "already been used" in m.sent[0])
+    check("reused code rejected", "уже использован" in m.sent[0])
     check("second account stays unverified", not bot.is_verified(intruder.id))
 
     section("menu and roster")
     m = Message("hi")
     await bot.on_text(Update(teacher, message=m), ctx)
-    check("verified user gets the menu", "verified" in m.sent[0].lower())
+    check("verified user gets the menu", "верифицированы" in m.sent[0].lower())
     check("menu has both buttons", labels(bot.menu_markup()) ==
-          ["📋 Mark students' attendance", "👁 View marked attendance list"])
+          ["📋 Отметить посещаемость", "👁 Посмотреть отмеченную посещаемость"])
 
     q = Query("mark")
     await bot.on_button(Update(teacher, query=q), ctx)
     check("roster lists every student + report + back",
           labels(q.markups[0]) ==
-          ["Alice Brown", "Bob Carter", "Chen Wei", "📄 Generate report", "⬅️ Go back"])
+          ["Alice Brown", "Bob Carter", "Chen Wei", "📄 Сформировать отчёт", "⬅️ Назад"])
 
     section("toggling")
     q = Query(f"t:{today}:1")
     await bot.on_button(Update(teacher, query=q), ctx)
-    check("toast says absent", q.toasts[0] == "Bob Carter is absent")
-    check("message says absent", "<b>Bob Carter</b> is absent" in q.screens[0])
+    check("toast says absent", q.toasts[0] == "Bob Carter отсутствует")
+    check("message says absent", "<b>Bob Carter</b> отсутствует" in q.screens[0])
     check("X icon appears on that name", "❌ Bob Carter" in labels(q.markups[0]))
     check("state records the absence", bot.absent_today() == ["Bob Carter"])
 
     q = Query(f"t:{today}:1")
     await bot.on_button(Update(teacher, query=q), ctx)
-    check("toast says present", q.toasts[0] == "Bob Carter is present")
-    check("message says present", "<b>Bob Carter</b> is present" in q.screens[0])
+    check("toast says present", q.toasts[0] == "Bob Carter присутствует")
+    check("message says present", "<b>Bob Carter</b> присутствует" in q.screens[0])
     check("X icon disappears", "❌ Bob Carter" not in labels(q.markups[0]))
     check("state cleared", bot.absent_today() == [])
 
@@ -253,7 +253,7 @@ async def main():
     q = Query("menu")
     await bot.on_button(Update(teacher, query=q), ctx)
     check("go back returns to the menu",
-          labels(q.markups[0])[0] == "📋 Mark students' attendance")
+          labels(q.markups[0])[0] == "📋 Отметить посещаемость")
 
     q = Query("mark", Message(chat_id=999, message_id=55))
     await bot.on_button(Update(teacher, query=q), ctx)
@@ -267,15 +267,15 @@ async def main():
     check("view sends a picture", len(ctx.bot.photos) == before + 1)
     pic = ctx.bot.photos[-1]
     check("the picture is a real PNG", pic["name"].endswith(".png") and pic["size"] > 5000)
-    check("exactly two buttons under it", labels(pic["markup"]) == ["✏️ Change", "👌 OK"])
+    check("exactly two buttons under it", labels(pic["markup"]) == ["✏️ Изменить", "👌 ОК"])
     check("caption reports the marked figures",
-          "Present: <b>1</b>" in pic["caption"] and "Absent: <b>2</b>" in pic["caption"])
+          "Присутствуют: <b>1</b>" in pic["caption"] and "Отсутствуют: <b>2</b>" in pic["caption"])
 
     cq = Query("chg", Message(chat_id=999, message_id=71))
     await bot.on_button(Update(teacher, query=cq), ctx)
     check("Change removes the picture", cq.message.deleted)
     roster_msg = ctx.bot.messages[-1]
-    check("Change opens the roster", "Tap a name to toggle" in roster_msg["text"])
+    check("Change opens the roster", "Нажмите на имя" in roster_msg["text"])
     check("Change keeps the existing marks",
           labels(roster_msg["markup"])[:3] == ["❌ Alice Brown", "Bob Carter", "❌ Chen Wei"])
 
@@ -284,7 +284,7 @@ async def main():
     check("OK removes the picture", okq.message.deleted)
     check("OK returns to the main menu",
           labels(ctx.bot.messages[-1]["markup"]) ==
-          ["📋 Mark students' attendance", "👁 View marked attendance list"])
+          ["📋 Отметить посещаемость", "👁 Посмотреть отмеченную посещаемость"])
 
     section("Uzbekistan time")
     check("timezone is Asia/Tashkent", str(bot.TZ) == "Asia/Tashkent")
@@ -301,12 +301,12 @@ async def main():
 
     q = Query(f"t:{yesterday}:0")          # a screen left open overnight
     await bot.on_button(Update(teacher, query=q), ctx)
-    check("editing a sealed day is refused", any("closed" in (a or "") for a in q.alerts))
+    check("editing a sealed day is refused", any("закрыта" in (a or "") for a in q.alerts))
     check("sealed data is untouched", bot.STATE["attendance"][yesterday] == ["Bob Carter"])
     check("stale screen swaps to today", bot.pretty_day(today) in q.screens[0])
     check("today's marks are intact after the refusal",
           set(bot.absent_today()) == {"Alice Brown", "Chen Wei"})
-    check("sealed sheet is labelled as closed", "no longer be edited" in bot.roster_text(yesterday))
+    check("sealed sheet is labelled as closed", "изменить его больше нельзя" in bot.roster_text(yesterday))
 
     section("midnight rollover")
     # A screen still showing yesterday's sheet, which carries one ❌.
@@ -362,10 +362,10 @@ async def main():
     photo = ctx.bot.photos[-1]
     check("a PNG report is sent", photo["name"].endswith(".png") and photo["size"] > 5000)
     check("caption counts 1 present / 2 absent",
-          "Present: <b>1</b>" in photo["caption"] and "Absent: <b>2</b>" in photo["caption"])
+          "Присутствуют: <b>1</b>" in photo["caption"] and "Отсутствуют: <b>2</b>" in photo["caption"])
     check("report offers a send button per group",
           labels(photo["markup"]) ==
-          ["📤 Send to 10-A Parents 2026", "📤 Send to Staff Room"])
+          ["📤 Отправить в «10-A Parents 2026»", "📤 Отправить в «Staff Room»"])
 
     section("sending a report to a group")
     report_msg_id = max(ctx.bot_data["reports"])
@@ -376,11 +376,11 @@ async def main():
     check("it reused the rendered image, not a re-render",
           delivered["name"].startswith("FILEID"))
     check("group caption names the sender", "@ivanova" in delivered["caption"])
-    check("toast confirms delivery", "Sent to 10-A Parents 2026" in (sq.toasts[-1] or ""))
+    check("toast confirms delivery", "Отправлено в «10-A Parents 2026»" in (sq.toasts[-1] or ""))
     check("that button flips to sent",
-          labels(sq.markup_edits[-1])[0] == "✅ Sent to 10-A Parents 2026")
+          labels(sq.markup_edits[-1])[0] == "✅ Отправлено в «10-A Parents 2026»")
     check("the other group is still offered",
-          labels(sq.markup_edits[-1])[1] == "📤 Send to Staff Room")
+          labels(sq.markup_edits[-1])[1] == "📤 Отправить в «Staff Room»")
 
     await bot.on_my_chat_member(
         Update(teacher, my_chat_member=MemberChange(grp2, "left"), chat=grp2), ctx)
@@ -388,7 +388,7 @@ async def main():
     gone = Query(f"snd:{today}:-1009876543210", Message(message_id=report_msg_id))
     await bot.on_button(Update(teacher, query=gone), ctx)
     check("sending to a group we left is refused",
-          any("not in that group any more" in (a or "") for a in gone.alerts))
+          any("Меня больше нет в этой группе" in (a or "") for a in gone.alerts))
 
     section("persistence and codes")
     bot.STATE = storage.load()
@@ -405,7 +405,7 @@ async def main():
     check("a fresh code verifies a second person", bot.is_verified(intruder.id))
     m3 = Message(fresh)
     await bot.on_text(Update(User(3003, "Third"), message=m3), ctx)
-    check("that code is now dead too", "already been used" in m3.sent[0])
+    check("that code is now dead too", "уже использован" in m3.sent[0])
 
     m = Message("DISK-CODE-1")
     await bot.on_text(Update(User(4004, "Fourth"), message=m), ctx)
@@ -429,7 +429,7 @@ async def main():
 
     await bot.on_button(Update(teacher, query=Query(f"rep:{today}", Message(message_id=90))), ctx)
     check("a group the bot has left gets no button",
-          labels(ctx.bot.photos[-1]["markup"]) == ["📤 Send to Still In"])
+          labels(ctx.bot.photos[-1]["markup"]) == ["📤 Отправить в «Still In»"])
     check("and it is dropped from state", "-1002222222222" not in bot.STATE["groups"])
 
     bot.STATE["groups"]["-1003333333333"] = {"title": "Flaky", "type": "group"}
@@ -448,8 +448,8 @@ async def main():
     sq2 = Query(f"snd:{today}:-1004444444444", Message(message_id=rid))
     await bot.on_button(Update(teacher, query=sq2), ctx)
     check("a failed send drops the group", "-1004444444444" not in bot.STATE["groups"])
-    check("the user is told why", any("not in Gone any more" in (a or "") for a in sq2.alerts))
-    check("the dead button disappears", "📤 Send to Gone" not in labels(sq2.markup_edits[-1]))
+    check("the user is told why", any("Меня больше нет в группе «Gone»" in (a or "") for a in sq2.alerts))
+    check("the dead button disappears", "📤 Отправить в «Gone»" not in labels(sq2.markup_edits[-1]))
     ctx.bot.send_fail = {}
 
     bot.STATE["groups"]["-1005555555555"] = {"title": "Upgraded", "type": "group"}
@@ -472,6 +472,10 @@ async def main():
     check("Sunday is a day off", bot.is_day_off(dt.date(2026, 9, 20)))
     check("Monday is not", not bot.is_day_off(dt.date(2026, 9, 21)))
     check("a one-off holiday is a day off", bot.is_day_off(dt.date(2026, 9, 23)))
+    bot.CONFIG["days_off"] = {"weekdays": ["Воскресенье"], "dates": []}
+    check("Russian weekday names work too", bot.is_day_off(dt.date(2026, 9, 20)))
+    check("and don't over-match", not bot.is_day_off(dt.date(2026, 9, 21)))
+    bot.CONFIG["days_off"] = {"weekdays": ["sunday"], "dates": ["2026-09-23"]}
 
     section("scheduled jobs")
     real_now = bot.now
@@ -487,7 +491,7 @@ async def main():
     check("reminder reaches every verified user",
           len(ctx.bot.messages) == before + len(bot.private_chats()))
     check("reminder says what it should",
-          "You haven't marked attendance" in ctx.bot.messages[-1]["text"])
+          "Вы ещё не отметили посещаемость" in ctx.bot.messages[-1]["text"])
     check("reminder goes to private chats, not groups",
           all(m["chat_id"] > 0 for m in ctx.bot.messages[before:]))
 
@@ -503,6 +507,11 @@ async def main():
     check("silent on a day off", len(ctx.bot.messages) == before)
 
     # -- Task 2: Monday morning weekly statistics
+    # Start from an empty week: the real "today" may fall inside it and was
+    # marked by the toggles earlier in this run.
+    stray = [k for k in bot.STATE["marked"] if "2026-09-07" <= k <= "2026-09-13"]
+    for k in stray:
+        bot.STATE["marked"].pop(k)
     for d, absents in {"2026-09-07": ["Alice Brown", "Bob Carter"],
                        "2026-09-08": ["Alice Brown"],
                        "2026-09-09": []}.items():
@@ -523,9 +532,9 @@ async def main():
     check("stats reach every user and every group",
           len(ctx.bot.photos) == before + expected)
     check("stats caption names the week",
-          "Weekly attendance" in ctx.bot.photos[-1]["caption"])
+          "Посещаемость за неделю" in ctx.bot.photos[-1]["caption"])
     check("stats cover last Mon-Sun, not this week",
-          "07 Sep" in ctx.bot.photos[-1]["caption"] and "13 Sep" in ctx.bot.photos[-1]["caption"])
+          "7 сен" in ctx.bot.photos[-1]["caption"] and "13 сен 2026" in ctx.bot.photos[-1]["caption"])
     check("the image is uploaded once then reused by file_id",
           ctx.bot.photos[before]["name"].endswith(".png")
           and ctx.bot.photos[before + 1]["name"].startswith("FILEID"))

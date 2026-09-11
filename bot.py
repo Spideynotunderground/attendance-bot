@@ -40,6 +40,7 @@ from telegram.ext import (
 )
 
 import report
+import ru
 import storage
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -77,13 +78,23 @@ def day_as_datetime(day: str) -> datetime:
 
 
 def pretty_day(day: str) -> str:
-    return day_as_datetime(day).strftime("%A, %d %B %Y")
+    """Пятница, 11 сентября 2026"""
+    return ru.day_full(day_as_datetime(day))
+
+
+WEEKDAY_KEYS = [
+    ("monday", "понедельник"), ("tuesday", "вторник"), ("wednesday", "среда"),
+    ("thursday", "четверг"), ("friday", "пятница"), ("saturday", "суббота"),
+    ("sunday", "воскресенье"),
+]
 
 
 def is_day_off(d) -> bool:
     """Weekly day off, or a one-off holiday listed in config.json."""
     cfg = CONFIG.get("days_off") or {}
-    if d.strftime("%A").lower() in [w.lower() for w in cfg.get("weekdays", [])]:
+    # English or Russian weekday names, independent of the server's locale.
+    configured = {w.strip().lower() for w in cfg.get("weekdays", [])}
+    if configured & set(WEEKDAY_KEYS[d.weekday()]):
         return True
     return d.isoformat() in (cfg.get("dates") or [])
 
@@ -282,21 +293,21 @@ def forget_screen(user_id: int) -> None:
 # screens
 # --------------------------------------------------------------------------
 
-MENU_TEXT = "✅ <b>You're verified.</b>\n\nWhat would you like to do?"
+MENU_TEXT = "✅ <b>Вы верифицированы.</b>\n\nЧто вы хотите сделать?"
 
 
 def menu_markup() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Mark students' attendance", callback_data="mark")],
-        [InlineKeyboardButton("👁 View marked attendance list", callback_data="view")],
+        [InlineKeyboardButton("📋 Отметить посещаемость", callback_data="mark")],
+        [InlineKeyboardButton("👁 Посмотреть отмеченную посещаемость", callback_data="view")],
     ])
 
 
 def view_markup() -> InlineKeyboardMarkup:
     """Shown under the attendance picture."""
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✏️ Change", callback_data="chg"),
-        InlineKeyboardButton("👌 OK", callback_data="ok"),
+        InlineKeyboardButton("✏️ Изменить", callback_data="chg"),
+        InlineKeyboardButton("👌 ОК", callback_data="ok"),
     ]])
 
 
@@ -308,8 +319,8 @@ def roster_markup(day: str) -> InlineKeyboardMarkup:
         )]
         for i, name in enumerate(students())
     ]
-    rows.append([InlineKeyboardButton("📄 Generate report", callback_data=f"rep:{day}")])
-    rows.append([InlineKeyboardButton("⬅️ Go back", callback_data="menu")])
+    rows.append([InlineKeyboardButton("📄 Сформировать отчёт", callback_data=f"rep:{day}")])
+    rows.append([InlineKeyboardButton("⬅️ Назад", callback_data="menu")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -317,13 +328,13 @@ def roster_text(day: str, status_line: str | None = None) -> str:
     absent = absent_on(day)
     total = len(students())
     head = (
-        f"📋 <b>Attendance</b> — {html.escape(CONFIG['group_name'])}\n"
+        f"📋 <b>Посещаемость</b> — {html.escape(CONFIG['group_name'])}\n"
         f"{pretty_day(day)}\n\n"
-        "Tap a name to toggle. ❌ means absent."
+        "Нажмите на имя, чтобы изменить отметку. ❌ — отсутствует."
     )
     if is_sealed(day):
-        head += "\n\n🔒 <b>This day is closed and can no longer be edited.</b>"
-    tail = f"\n\nPresent: <b>{total - len(absent)}</b>   Absent: <b>{len(absent)}</b>"
+        head += "\n\n🔒 <b>Этот день закрыт, изменить его больше нельзя.</b>"
+    tail = f"\n\nПрисутствуют: <b>{total - len(absent)}</b>   Отсутствуют: <b>{len(absent)}</b>"
     if status_line:
         return f"{head}\n\n{status_line}{tail}"
     return head + tail
@@ -333,12 +344,12 @@ def report_markup(day: str, sent_to=(), groups=None) -> InlineKeyboardMarkup | N
     """A "send to <group>" button per group the bot currently belongs to."""
     rows = []
     for chat_id, group in (STATE["groups"] if groups is None else groups).items():
-        title = group.get("title") or "group"
+        title = group.get("title") or "без названия"
         if chat_id in sent_to:
-            rows.append([InlineKeyboardButton(f"✅ Sent to {title}", callback_data="noop")])
+            rows.append([InlineKeyboardButton(f"✅ Отправлено в «{title}»", callback_data="noop")])
         else:
             rows.append([InlineKeyboardButton(
-                f"📤 Send to {title}", callback_data=f"snd:{day}:{chat_id}"
+                f"📤 Отправить в «{title}»", callback_data=f"snd:{day}:{chat_id}"
             )])
     return InlineKeyboardMarkup(rows) if rows else None
 
@@ -360,7 +371,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if update.effective_chat.type != "private":
         await update.message.reply_text(
-            "👋 I take attendance in a private chat. Message me directly to start."
+            "👋 Я отмечаю посещаемость в личном чате. Напишите мне напрямую, чтобы начать."
         )
         return
     if is_verified(user.id):
@@ -369,10 +380,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     await update.message.reply_text(
-        "🔒 <b>This bot is private.</b>\n\n"
-        "Send me your access code to get verified.\n"
-        "<i>Each code works exactly once — it stops working the moment it "
-        "verifies an account.</i>",
+        "🔒 <b>Это закрытый бот.</b>\n\n"
+        "Отправьте мне ваш код доступа, чтобы пройти верификацию.\n"
+        "<i>Каждый код работает только один раз — он перестаёт действовать, "
+        "как только подтвердит аккаунт.</i>",
         parse_mode=ParseMode.HTML,
     )
 
@@ -389,8 +400,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     code = (update.message.text or "").strip()
     if redeem(code, user):
         await update.message.reply_text(
-            "🎉 <b>Verification successful.</b>\n"
-            "That code is now used up and cannot verify anyone else.",
+            "🎉 <b>Верификация прошла успешно.</b>\n"
+            "Этот код использован и больше никого не подтвердит.",
             parse_mode=ParseMode.HTML,
         )
         await update.message.reply_text(
@@ -398,16 +409,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     else:
         known = code in STATE["codes"]
-        reason = "already been used" if known else "not a valid code"
+        problem = "Этот код уже использован." if known else "Неверный код."
         await update.message.reply_text(
-            f"❌ That code has {reason}. Ask an existing user for a fresh one."
+            f"❌ {problem} Попросите новый код у одного из пользователей бота."
         )
 
 
 async def cmd_newcode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not is_verified(user.id):
-        await update.message.reply_text("🔒 Send a valid access code first.")
+        await update.message.reply_text("🔒 Сначала отправьте действующий код доступа.")
         return
     code = make_code()
     STATE["codes"][code] = {
@@ -418,8 +429,9 @@ async def cmd_newcode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     }
     storage.save(STATE)
     await update.message.reply_text(
-        f"🆕 One-time access code:\n\n<code>{code}</code>\n\n"
-        "Give it to <b>one</b> person. It dies as soon as they use it.",
+        f"🆕 Одноразовый код доступа:\n\n<code>{code}</code>\n\n"
+        "Передайте его <b>одному</b> человеку. Код перестанет действовать "
+        "сразу после использования.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -428,12 +440,12 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clears today only — sealed days are never touched."""
     user = update.effective_user
     if not is_verified(user.id):
-        await update.message.reply_text("🔒 Send a valid access code first.")
+        await update.message.reply_text("🔒 Сначала отправьте действующий код доступа.")
         return
     STATE["attendance"][today_key()] = []
     storage.save(STATE)
     await update.message.reply_text(
-        "♻️ Today's attendance was cleared — everyone is marked present again.",
+        "♻️ Посещаемость за сегодня сброшена — все снова отмечены как присутствующие.",
         reply_markup=menu_markup(),
     )
 
@@ -441,19 +453,19 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_groups(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Shows which groups the bot can send reports to."""
     if not is_verified(update.effective_user.id):
-        await update.message.reply_text("🔒 Send a valid access code first.")
+        await update.message.reply_text("🔒 Сначала отправьте действующий код доступа.")
         return
     if not STATE["groups"]:
         await update.message.reply_text(
-            "I'm not in any group yet.\n\n"
-            "Add me to your group and I'll offer it as a destination under every "
-            "report. (In a group with privacy mode on, I only need to be a member "
-            "to post there.)"
+            "Я пока не состою ни в одной группе.\n\n"
+            "Добавьте меня в вашу группу — и под каждым отчётом появится кнопка "
+            "для отправки туда. (Даже если в группе включён режим приватности, "
+            "мне достаточно быть её участником.)"
         )
         return
     lines = [f"• {g.get('title')}  <code>{cid}</code>" for cid, g in STATE["groups"].items()]
     await update.message.reply_text(
-        "📢 <b>I can send reports to:</b>\n" + "\n".join(lines), parse_mode=ParseMode.HTML
+        "📢 <b>Я могу отправлять отчёты в:</b>\n" + "\n".join(lines), parse_mode=ParseMode.HTML
     )
 
 
@@ -579,7 +591,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not is_verified(user.id):
         await query.answer(
-            "🔒 You are not verified. Send /start and enter an access code.",
+            "🔒 Вы не верифицированы. Отправьте /start и введите код доступа.",
             show_alert=True,
         )
         return
@@ -604,7 +616,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if data == "view":
-        await query.answer("Loading…")
+        await query.answer("Загрузка…")
         await send_attendance_view(update, context, today_key())
         return
 
@@ -630,7 +642,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if data.startswith("rep:"):
-        await query.answer("Generating…")
+        await query.answer("Формирую отчёт…")
         await send_report(update, context, data.split(":", 1)[1])
         return
 
@@ -646,8 +658,8 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Refuse the edit and swap the screen over to today.
         if is_sealed(day):
             await query.answer(
-                f"🔒 Attendance for {pretty_day(day)} is closed and can no longer "
-                "be edited. Showing today's sheet instead.",
+                f"🔒 Посещаемость за {ru.date_long(day_as_datetime(day))} закрыта "
+                "и больше не может быть изменена. Показываю список на сегодня.",
                 show_alert=True,
             )
             fresh = today_key()
@@ -658,19 +670,19 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             name = students()[int(raw_idx)]
         except (ValueError, IndexError):
-            await query.answer("That student is no longer on the roster.", show_alert=True)
+            await query.answer("Этого ученика больше нет в списке.", show_alert=True)
             await show(query, roster_text(day), roster_markup(day))
             return
 
         absent = absent_on(day)
         if name in absent:
             absent.remove(name)
-            status = f"✅ <b>{html.escape(name)}</b> is present"
-            toast = f"{name} is present"
+            status = f"✅ <b>{html.escape(name)}</b> присутствует"
+            toast = f"{name} присутствует"
         else:
             absent.append(name)
-            status = f"❌ <b>{html.escape(name)}</b> is absent"
-            toast = f"{name} is absent"
+            status = f"❌ <b>{html.escape(name)}</b> отсутствует"
+            toast = f"{name} отсутствует"
         mark_touched(day, user.id)
         storage.save(STATE)
 
@@ -690,12 +702,12 @@ def report_caption(day: str) -> str:
     absent = absent_on(day)
     total = len(students())
     caption = (
-        f"📄 <b>Attendance report</b> — {html.escape(CONFIG['group_name'])}\n"
+        f"📄 <b>Отчёт о посещаемости</b> — {html.escape(CONFIG['group_name'])}\n"
         f"{pretty_day(day)}\n"
-        f"Present: <b>{total - len(absent)}</b>   Absent: <b>{len(absent)}</b>"
+        f"Присутствуют: <b>{total - len(absent)}</b>   Отсутствуют: <b>{len(absent)}</b>"
     )
     if is_sealed(day):
-        caption += "\n🔒 Closed — final."
+        caption += "\n🔒 День закрыт — данные окончательные."
     return caption
 
 
@@ -707,7 +719,7 @@ async def send_report(update: Update, context: ContextTypes.DEFAULT_TYPE, day: s
     caption = report_caption(day)
     markup = report_markup(day, groups=await live_groups(context))
     if markup is None:
-        caption += "\n\n<i>Add me to a group to send reports there.</i>"
+        caption += "\n\n<i>Добавьте меня в группу, чтобы отправлять туда отчёты.</i>"
 
     try:
         image = report.build_report_image(
@@ -735,7 +747,7 @@ async def send_report(update: Update, context: ContextTypes.DEFAULT_TYPE, day: s
             when=day_as_datetime(day), generated_at=now(),
         )
         buf = io.BytesIO(text.encode("utf-8"))
-        buf.name = f"attendance-{day}.txt"
+        buf.name = f"посещаемость-{day}.txt"
         await context.bot.send_document(
             chat_id, document=buf, caption=caption,
             parse_mode=ParseMode.HTML, reply_markup=markup,
@@ -761,13 +773,13 @@ async def send_attendance_view(update: Update, context: ContextTypes.DEFAULT_TYP
     absent = absent_on(day)
     roster = students()
     caption = (
-        f"👁 <b>Marked attendance</b> — {html.escape(CONFIG['group_name'])}\n"
+        f"👁 <b>Отмеченная посещаемость</b> — {html.escape(CONFIG['group_name'])}\n"
         f"{pretty_day(day)}\n"
-        f"Present: <b>{len(roster) - len(absent)}</b>   Absent: <b>{len(absent)}</b>"
+        f"Присутствуют: <b>{len(roster) - len(absent)}</b>   Отсутствуют: <b>{len(absent)}</b>"
     )
     if not is_marked(day):
-        caption += ("\n\n⚠️ <i>Nobody has taken the register today yet — "
-                    "this shows the default, everyone present.</i>")
+        caption += ("\n\n⚠️ <i>Сегодня посещаемость ещё никто не отмечал — "
+                    "показано значение по умолчанию: все присутствуют.</i>")
     try:
         image = report.build_report_image(
             CONFIG["group_name"], roster, absent,
@@ -799,12 +811,12 @@ async def send_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     group = STATE["groups"].get(chat_id)
     if group is None:
-        await query.answer("I'm not in that group any more.", show_alert=True)
+        await query.answer("Меня больше нет в этой группе.", show_alert=True)
         await refresh_buttons()
         return
 
-    title = group.get("title") or "the group"
-    caption = f"{report_caption(day)}\n\n<i>Sent by {html.escape(who(user))}</i>"
+    title = group.get("title") or "без названия"
+    caption = f"{report_caption(day)}\n\n<i>Отправитель: {html.escape(who(user))}</i>"
 
     async def deliver(target: int) -> None:
         if record and record.get("file_id"):
@@ -834,15 +846,15 @@ async def send_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if is_dead_chat(exc):
             forget_group(chat_id, str(exc))
             await query.answer(
-                f"I'm not in {title} any more — removing that button.", show_alert=True
+                f"Меня больше нет в группе «{title}» — убираю эту кнопку.", show_alert=True
             )
         else:
             log.warning("Sending report to %s failed: %s", chat_id, exc)
-            await query.answer(f"Couldn't send to {title}: {exc}", show_alert=True)
+            await query.answer(f"Не удалось отправить в «{title}»: {exc}", show_alert=True)
         await refresh_buttons()
         return
 
-    await query.answer(f"Sent to {title} ✅")
+    await query.answer(f"Отправлено в «{title}» ✅")
     if record is not None and chat_id not in record["sent_to"]:
         record["sent_to"].append(chat_id)
     sent_to = record["sent_to"] if record else [chat_id]
@@ -932,8 +944,8 @@ async def job_weekly_stats(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     caption = (
-        f"📊 <b>Weekly attendance</b> — {html.escape(CONFIG['group_name'])}\n"
-        f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}  ·  {days} school days"
+        f"📊 <b>Посещаемость за неделю</b> — {html.escape(CONFIG['group_name'])}\n"
+        f"{ru.date_short(start, year=False)} – {ru.date_short(end)}  ·  {ru.school_days(days)}"
     )
     targets = private_chats() + group_chats()
     try:
@@ -958,7 +970,7 @@ async def job_unmarked_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     n = await broadcast_text(
         context, private_chats(),
-        f"⚠️ <b>You haven't marked attendance</b>\n{pretty_day(day)}",
+        f"⚠️ <b>Вы ещё не отметили посещаемость</b>\n{pretty_day(day)}",
     )
     log.info("Unmarked-attendance reminder sent to %d chat(s).", n)
 

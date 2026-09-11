@@ -16,7 +16,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py report.py storage.py config.json ./
+COPY bot.py report.py ru.py storage.py config.json ./
 COPY fonts/ ./fonts/
 
 # Mount a persistent volume here, or verified users and attendance history

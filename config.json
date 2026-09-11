@@ -29,7 +29,7 @@
     "Худойбердыев Хакимжон",
     "Шарипов Мухаммадсаид"
   ],
-  "_days_off_note": "No reminders or weekly statistics are sent on these days. 'weekdays' repeats every week; 'dates' are one-off holidays as YYYY-MM-DD.",
+  "_days_off_note": "No reminders or weekly statistics are sent on these days. 'weekdays' repeats every week and accepts English or Russian names ('sunday' or 'воскресенье'); 'dates' are one-off holidays as YYYY-MM-DD.",
   "days_off": {
     "weekdays": [
       "sunday"
