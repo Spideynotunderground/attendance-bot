@@ -168,6 +168,41 @@ def is_marked(day: str) -> bool:
     return day in STATE["marked"]
 
 
+def apply_renames() -> int:
+    """Carry attendance history over when a student's spelling is corrected.
+
+    Attendance is stored by name, so fixing a spelling in config.json would
+    otherwise orphan that student's absences: they would drop out of the weekly
+    statistics, and an orphaned name in today's list would still be counted as
+    absent while no row shows the ❌. List corrections under "renamed_students"
+    as {"old spelling": "new spelling"}. Idempotent.
+    """
+    renames = CONFIG.get("renamed_students") or {}
+    changed = 0
+    for day, names in STATE["attendance"].items():
+        fixed = []
+        for name in names:
+            new = renames.get(name, name)
+            if new != name:
+                changed += 1
+            if new not in fixed:
+                fixed.append(new)
+        STATE["attendance"][day] = fixed
+    if changed:
+        storage.save(STATE)
+        log.info("Applied %d student rename(s) across attendance history.", changed)
+
+    roster = set(students())
+    stray = sorted({n for names in STATE["attendance"].values() for n in names} - roster)
+    if stray:
+        log.warning(
+            "Attendance history has names not on the roster: %s. If these are "
+            "spelling fixes, map them under renamed_students in config.json.",
+            ", ".join(stray),
+        )
+    return changed
+
+
 def is_sealed(day: str) -> bool:
     """Any day other than the current Tashkent day is read-only, forever."""
     return day != today_key()
@@ -1087,6 +1122,7 @@ def main() -> None:
     STATE = storage.load()
     seed_codes()
     apply_revocations()
+    apply_renames()
 
     builder = Application.builder().token(CONFIG["token"])
     # Some networks block api.telegram.org outright. Set "proxy" in config.json

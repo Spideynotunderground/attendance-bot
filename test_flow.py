@@ -644,6 +644,33 @@ async def main():
 
     bot.now = real_now
 
+    section("student spelling corrections")
+    bot.CONFIG["students"] = ["Alice Brown", "Bob Karter", "Chen Wei"]   # Bob's spelling fixed
+    bot.STATE["attendance"]["2026-09-01"] = ["Bob Carter", "Alice Brown"]
+    bot.STATE["attendance"][today] = ["Bob Carter"]
+    check("without a mapping, the old spelling is orphaned (counted absent, no ❌)",
+          "Отсутствуют: <b>1</b>" in bot.roster_text(today)
+          and not any(l.startswith("❌") for l in labels(bot.roster_markup(today))))
+    bot.CONFIG["renamed_students"] = {"Bob Carter": "Bob Karter"}
+    # Earlier sections also left "Bob Carter" on other days; every one must move.
+    expected = sum(names.count("Bob Carter") for names in bot.STATE["attendance"].values())
+    applied = bot.apply_renames()
+    print(f"        (old-spelling entries: {expected}, renamed: {applied})")
+    check("every old-spelling entry across history is renamed",
+          applied == expected and expected >= 2)
+    check("no old spelling is left anywhere",
+          not any("Bob Carter" in names for names in bot.STATE["attendance"].values()))
+    check("past absences follow the new spelling",
+          bot.STATE["attendance"]["2026-09-01"] == ["Bob Karter", "Alice Brown"])
+    check("today's ❌ lands on the corrected name",
+          "❌ Bob Karter" in labels(bot.roster_markup(today)))
+    check("and the absent count matches the ❌ marks", "Отсутствуют: <b>1</b>" in bot.roster_text(today))
+    check("running it again changes nothing", bot.apply_renames() == 0)
+    check("the correction survives a restart",
+          storage.load()["attendance"]["2026-09-01"][0] == "Bob Karter")
+    bot.CONFIG["students"] = ["Alice Brown", "Bob Carter", "Chen Wei"]
+    bot.CONFIG.pop("renamed_students")
+
     print()
     if failures:
         print(f"{len(failures)} of {total[0]} check(s) FAILED:")

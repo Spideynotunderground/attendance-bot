@@ -147,6 +147,7 @@ is labelled `🔒 День закрыт — данные окончательн�
 |---|---|
 | `group_name` | Shown in the report header |
 | `students` | Your roster. Edit this list — button order follows it |
+| `renamed_students` | Spelling fixes, `"old": "new"` — carries saved attendance over to the new spelling |
 | `days_off` | Weekly days off and one-off holidays |
 
 Environment variables (`.env` locally, host settings on a server):
@@ -382,7 +383,12 @@ come back to life, and the attendance history would be gone. Do not remove it.
 
 ### Day-to-day
 
-- **Change the roster:** edit `students` in `config.json`, commit, push. Render
+- **Change the roster:** edit `students` in `config.json`, commit, push.
+  **Correcting a spelling?** Attendance is saved by name, so also add the fix to
+  `renamed_students` (`"old spelling": "new spelling"`). Otherwise that student's
+  past absences stay under the old spelling: they vanish from the weekly
+  statistics, and a mark made today would be counted without showing a ❌.
+  The bot logs a warning at startup if it finds a name it can't match. Render
   redeploys automatically; `/data` is untouched, so attendance survives.
 - **Add access codes:** add them to `initial_access_codes` and push. Codes
   already redeemed are never revived.
