@@ -694,7 +694,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not is_verified(user.id):
         await query.answer(
-            "🔒 Вы не верифицированы. Отправьте /start и введите код доступа.",
+            "🔒 Вы не зарегистрированы. Отправьте /start и введите код доступа.",
             show_alert=True,
         )
         return
