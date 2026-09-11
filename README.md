@@ -221,9 +221,21 @@ EOF
 To see what exists and what has been used:
 
 ```bash
-cat /data/access_codes.txt
-python -c "import json;d=json.load(open('/data/data.json'));[print(c, 'REVOKED' if v.get('revoked') else (v['used_by'] or 'unused')) for c,v in d['codes'].items()]"
+python codes.py            # every code: UNUSED / USED by … / REVOKED
+python codes.py --unused   # only the codes you can still hand out
 ```
+
+```
+ADMIN-AAAA1111  UNUSED
+ADMIN-BBBB2222  USED     by Aziza Karimova (@aziza_k)
+ADMIN-CCCC3333  REVOKED
+ADMIN-DDDD4444  REVOKED  (pending — the bot blocks it within a minute)
+
+1 unused · 1 used · 2 revoked
+```
+
+A code you have just added or revoked shows as *pending* until the bot's next
+refresh, so the status is right the moment you run the command.
 
 The environment-variable route works too — service → **Environment** → set
 `ACCESS_CODES` → save. That restarts the service, so the file is the smoother
@@ -244,6 +256,8 @@ Within a minute — the same refresh as for adding — the bot blocks it:
 - **Used code:** the person who got in with it **loses access** immediately.
   Their buttons stop working and they stop receiving reminders. Other users are
   unaffected.
+
+Check it with `python codes.py` — it shows `REVOKED` straight away.
 
 A revoked code can never come back, even if it is still (or later) listed in
 `access_codes.txt` — so you can also revoke a code *before* handing it out.

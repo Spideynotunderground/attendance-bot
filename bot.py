@@ -282,6 +282,8 @@ def apply_revocations(quiet: bool = False) -> list:
         holder = STATE["verified_users"].get(str(user_id)) if user_id is not None else None
         # Only if they got in with *this* code — never lock out someone else.
         if holder is not None and holder.get("code") == code:
+            entry.setdefault("used_by_name", holder.get("name"))
+            entry.setdefault("used_by_username", holder.get("username"))
             STATE["verified_users"].pop(str(user_id))
             STATE["open_screens"].pop(str(user_id), None)
             log.info("Revoked code %s; %s (%s) lost access", code, holder.get("name"), user_id)
@@ -311,6 +313,10 @@ def redeem(code: str, user) -> bool:
         return False
     entry["used_by"] = user.id
     entry["used_at"] = storage.now_iso()
+    # Kept on the code itself so a status check can still name them after a
+    # revocation has removed them from verified_users.
+    entry["used_by_name"] = user.full_name
+    entry["used_by_username"] = user.username
     STATE["verified_users"][str(user.id)] = {
         "name": user.full_name,
         "username": user.username,

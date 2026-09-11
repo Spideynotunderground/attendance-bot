@@ -473,6 +473,41 @@ async def main():
     check("revocations survive a restart", bot.is_revoked(bot.STATE["codes"]["REV-USED"])
           and not bot.is_verified(6006))
 
+    section("codes.py status tool")
+    import subprocess
+    import sys
+    import codes as codes_tool
+
+    listed = codes_tool.read_code_file(bot.revoked_file())
+    rows = dict(codes_tool.statuses(bot.STATE, listed, []))
+    check("an applied revocation shows REVOKED", rows["REV-UNUSED"] == "REVOKED")
+    check("a revoked used code says who had it",
+          rows["REV-USED"].startswith("REVOKED") and "Former Teacher" in rows["REV-USED"])
+    check("a used code shows who used it",
+          rows["TEST-AAA"].startswith("USED") and "Ms. Ivanova" in rows["TEST-AAA"])
+    check("an untouched code shows UNUSED", rows["TEST-BBB"] == "UNUSED")
+
+    # Listed in the files, but the bot has not refreshed yet.
+    rows = dict(codes_tool.statuses(bot.STATE, ["TEST-BBB", "NEVER-ISSUED"], ["BRAND-NEW"]))
+    check("a code revoked seconds ago already shows REVOKED",
+          rows["TEST-BBB"].startswith("REVOKED") and "pending" in rows["TEST-BBB"])
+    check("a code added seconds ago shows as pending NEW", rows["BRAND-NEW"].startswith("NEW"))
+    check("revoking a code never issued shows REVOKED", rows["NEVER-ISSUED"].startswith("REVOKED"))
+
+    env = dict(os.environ, DATA_DIR=str(storage.DATA_FILE.parent))
+    here = str(Path(__file__).resolve().parent)
+    run = lambda *a: subprocess.run([sys.executable, "codes.py", *a], capture_output=True,
+                                    text=True, env=env, cwd=here)
+    full = run()
+    check("the command runs cleanly", full.returncode == 0 and not full.stderr)
+    line = next((l for l in full.stdout.splitlines() if l.startswith("REV-UNUSED")), "")
+    check("the command prints revoked codes as REVOKED", "REVOKED" in line)
+    check("and prints a summary", "revoked" in full.stdout.splitlines()[-1])
+    only = run("--unused").stdout.split()
+    check("--unused lists codes still available", "TEST-BBB" in only)
+    check("--unused leaves out revoked and used codes",
+          "REV-UNUSED" not in only and "TEST-AAA" not in only)
+
     section("stale group buttons")
     bot.STATE["groups"] = {
         "-1001111111111": {"title": "Still In", "type": "group"},
