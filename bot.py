@@ -391,7 +391,7 @@ def forget_screen(user_id: int) -> None:
 # screens
 # --------------------------------------------------------------------------
 
-MENU_TEXT = "✅ <b>Вы верифицированы.</b>\n\nЧто вы хотите сделать?"
+MENU_TEXT = "✅ <b>Вы зарегистрированы.</b>\n\nЧто вы хотите сделать?"
 
 
 def menu_markup() -> InlineKeyboardMarkup:
