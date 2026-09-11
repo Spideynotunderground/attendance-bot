@@ -419,6 +419,60 @@ async def main():
     check("/reset does not touch sealed days",
           bot.STATE["attendance"][yesterday] == ["Bob Carter"])
 
+    section("revoking codes")
+    rv = bot.revoked_file()
+
+    bot.STATE["codes"]["REV-UNUSED"] = {"created_at": "x", "used_by": None, "used_at": None}
+    rv.write_text("REV-UNUSED\n", encoding="utf-8")
+    check("revoking an unused code reports it", bot.apply_revocations(quiet=True) == ["REV-UNUSED"])
+    check("it leaves the unused list", "REV-UNUSED" not in bot.unused_codes())
+    m = Message("REV-UNUSED")
+    await bot.on_text(Update(User(5005, "Would-be"), message=m), ctx)
+    check("a revoked code no longer verifies anyone", not bot.is_verified(5005))
+    check("and the bot says it was revoked", "отозван" in m.sent[0])
+    check("re-reading the file changes nothing", bot.apply_revocations(quiet=True) == [])
+
+    bot.STATE["codes"]["REV-USED"] = {"created_at": "x", "used_by": None, "used_at": None}
+    victim = User(6006, "Former Teacher")
+    await bot.on_text(Update(victim, message=Message("REV-USED")), ctx)
+    check("setup: the code verified someone", bot.is_verified(6006))
+    with rv.open("a", encoding="utf-8") as f:
+        f.write("REV-USED\n")
+    bot.apply_revocations(quiet=True)
+    check("revoking a used code removes that person's access", not bot.is_verified(6006))
+    q = Query("mark")
+    await bot.on_button(Update(victim, query=q), ctx)
+    check("their buttons stop working", "не верифицированы" in (q.toasts[0] or ""))
+    check("they drop out of the reminder list", 6006 not in bot.private_chats())
+    check("everyone else keeps access", bot.is_verified(teacher.id))
+
+    # Revoke a code before it was ever issued, then add it anyway.
+    with rv.open("a", encoding="utf-8") as f:
+        f.write("REV-LATER\n")
+    bot.apply_revocations(quiet=True)
+    with bot.codes_file().open("a", encoding="utf-8") as f:
+        f.write("REV-LATER\nREV-UNUSED\n")
+    bot.seed_codes(quiet=True)
+    check("a pre-revoked code added later stays revoked",
+          bot.is_revoked(bot.STATE["codes"]["REV-LATER"]))
+    check("a revoked code listed in access_codes.txt is not revived",
+          bot.is_revoked(bot.STATE["codes"]["REV-UNUSED"]))
+    m = Message("REV-LATER")
+    await bot.on_text(Update(User(7007, "Someone"), message=m), ctx)
+    check("so it can't be used", not bot.is_verified(7007))
+
+    # Only the holder of *that* code is removed.
+    bot.STATE["codes"]["REV-SHARED"] = {"created_at": "x", "used_by": teacher.id, "used_at": "x"}
+    with rv.open("a", encoding="utf-8") as f:
+        f.write("REV-SHARED\n")
+    bot.apply_revocations(quiet=True)
+    check("a user who got in with a different code is not locked out",
+          bot.is_verified(teacher.id))
+
+    bot.STATE = storage.load()
+    check("revocations survive a restart", bot.is_revoked(bot.STATE["codes"]["REV-USED"])
+          and not bot.is_verified(6006))
+
     section("stale group buttons")
     bot.STATE["groups"] = {
         "-1001111111111": {"title": "Still In", "type": "group"},

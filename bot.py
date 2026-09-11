@@ -183,6 +183,23 @@ def codes_file() -> Path:
     return storage.DATA_FILE.parent / "access_codes.txt"
 
 
+def revoked_file() -> Path:
+    """Codes listed here are blocked for good; whoever used one loses access."""
+    return storage.DATA_FILE.parent / "revoked_codes.txt"
+
+
+def read_code_file(path: Path) -> list:
+    """One code per line; '#' starts a comment."""
+    if not path.exists():
+        return []
+    codes = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            codes.append(line)
+    return codes
+
+
 def read_configured_codes() -> list:
     """Access codes come from the server only — never from the repo.
 
@@ -193,12 +210,7 @@ def read_configured_codes() -> list:
     raw = os.environ.get("ACCESS_CODES", "")
     found = [c.strip() for c in raw.replace(",", " ").split()]
 
-    path = codes_file()
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.split("#", 1)[0].strip()
-            if line:
-                found.append(line)
+    found += read_code_file(codes_file())
     return [c for c in found if c]
 
 
@@ -233,14 +245,59 @@ def seed_codes(quiet: bool = False) -> list:
             log.info("Registered %d new access code(s): %s", len(added), ", ".join(added))
 
     if not quiet:
-        unused = [c for c, v in STATE["codes"].items() if v["used_by"] is None]
+        unused = unused_codes()
         log.info("Unused access codes: %s", ", ".join(unused) if unused else "(none left)")
     return added
 
 
+def is_revoked(entry) -> bool:
+    return bool(entry and entry.get("revoked"))
+
+
+def unused_codes() -> list:
+    return [c for c, v in STATE["codes"].items() if v["used_by"] is None and not is_revoked(v)]
+
+
+def apply_revocations(quiet: bool = False) -> list:
+    """Block every code listed in revoked_codes.txt.
+
+    Done in memory rather than by editing data.json, so the running bot can't
+    overwrite it with a stale copy. A revoked code also stays in STATE, which
+    is what stops access_codes.txt from ever re-adding it as a fresh code —
+    including a code revoked before it was issued at all.
+    """
+    revoked_now = []
+    for code in read_code_file(revoked_file()):
+        entry = STATE["codes"].get(code)
+        if is_revoked(entry):
+            continue
+        if entry is None:
+            entry = STATE["codes"][code] = {
+                "created_at": storage.now_iso(), "used_by": None, "used_at": None,
+            }
+        entry["revoked"] = True
+        entry["revoked_at"] = storage.now_iso()
+
+        user_id = entry.get("used_by")
+        holder = STATE["verified_users"].get(str(user_id)) if user_id is not None else None
+        # Only if they got in with *this* code — never lock out someone else.
+        if holder is not None and holder.get("code") == code:
+            STATE["verified_users"].pop(str(user_id))
+            STATE["open_screens"].pop(str(user_id), None)
+            log.info("Revoked code %s; %s (%s) lost access", code, holder.get("name"), user_id)
+        else:
+            log.info("Revoked code %s", code)
+        revoked_now.append(code)
+
+    if revoked_now:
+        storage.save(STATE)
+    return revoked_now
+
+
 async def refresh_codes(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Pick up codes appended to access_codes.txt without needing a restart."""
+    """Pick up added and revoked codes without needing a restart."""
     seed_codes(quiet=True)
+    apply_revocations(quiet=True)
 
 
 def is_verified(user_id: int) -> bool:
@@ -250,7 +307,7 @@ def is_verified(user_id: int) -> bool:
 def redeem(code: str, user) -> bool:
     """Burn `code` for `user`. Returns False if unknown or already spent."""
     entry = STATE["codes"].get(code)
-    if entry is None or entry["used_by"] is not None:
+    if entry is None or entry["used_by"] is not None or is_revoked(entry):
         return False
     entry["used_by"] = user.id
     entry["used_at"] = storage.now_iso()
@@ -408,8 +465,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             MENU_TEXT, reply_markup=menu_markup(), parse_mode=ParseMode.HTML
         )
     else:
-        known = code in STATE["codes"]
-        problem = "Этот код уже использован." if known else "Неверный код."
+        entry = STATE["codes"].get(code)
+        if is_revoked(entry):
+            problem = "Этот код отозван."
+        elif entry is not None:
+            problem = "Этот код уже использован."
+        else:
+            problem = "Неверный код."
         await update.message.reply_text(
             f"❌ {problem} Попросите новый код у одного из пользователей бота."
         )
@@ -1018,6 +1080,7 @@ def main() -> None:
     CONFIG = load_config()
     STATE = storage.load()
     seed_codes()
+    apply_revocations()
 
     builder = Application.builder().token(CONFIG["token"])
     # Some networks block api.telegram.org outright. Set "proxy" in config.json

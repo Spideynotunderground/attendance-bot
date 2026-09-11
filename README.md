@@ -222,12 +222,39 @@ To see what exists and what has been used:
 
 ```bash
 cat /data/access_codes.txt
-python -c "import json;d=json.load(open('/data/data.json'));[print(c, v['used_by'] or 'unused') for c,v in d['codes'].items()]"
+python -c "import json;d=json.load(open('/data/data.json'));[print(c, 'REVOKED' if v.get('revoked') else (v['used_by'] or 'unused')) for c,v in d['codes'].items()]"
 ```
 
 The environment-variable route works too — service → **Environment** → set
 `ACCESS_CODES` → save. That restarts the service, so the file is the smoother
 option for day-to-day additions.
+
+### Revoking a code
+
+Append it to `revoked_codes.txt` on the disk:
+
+```bash
+echo "ADMIN-XXXXXXXX" >> /data/revoked_codes.txt
+```
+
+Within a minute — the same refresh as for adding — the bot blocks it:
+
+- **Unused code:** it can no longer be redeemed; anyone who tries is told it was
+  revoked.
+- **Used code:** the person who got in with it **loses access** immediately.
+  Their buttons stop working and they stop receiving reminders. Other users are
+  unaffected.
+
+A revoked code can never come back, even if it is still (or later) listed in
+`access_codes.txt` — so you can also revoke a code *before* handing it out.
+Revocations survive restarts and redeploys.
+
+Don't revoke by editing `data.json` or deleting lines from `access_codes.txt`:
+the running bot keeps its state in memory and would overwrite the edit, and a
+code deleted from `data.json` but still in `access_codes.txt` would be re-added
+as a fresh, usable code. `revoked_codes.txt` is the supported way.
+
+To give someone access again after revoking, issue them a new code.
 
 ### The first code on a fresh deployment
 
