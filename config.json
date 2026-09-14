@@ -1,6 +1,6 @@
 {
   "_note": "Safe to commit — no secrets here. The bot token and the access codes both come from the server environment, never from this file.",
-  "group_name": "Group 206",
+  "group_name": "Группа 206",
   "_students_note": "Edit this list to your real roster. Order here is the order of the buttons.",
   "students": [
     "Абдужабборов Муминжон",

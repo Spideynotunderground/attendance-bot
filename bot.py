@@ -397,7 +397,7 @@ MENU_TEXT = "✅ <b>Вы зарегистрированы.</b>\n\nЧто вы х
 def menu_markup() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Отметить посещаемость", callback_data="mark")],
-        [InlineKeyboardButton("👁 Посмотреть отмеченную посещаемость", callback_data="view")],
+        [InlineKeyboardButton("👁 Посмотреть журнал", callback_data="view")],
     ])
 
 
@@ -428,7 +428,7 @@ def roster_text(day: str, status_line: str | None = None) -> str:
     head = (
         f"📋 <b>Посещаемость</b> — {html.escape(CONFIG['group_name'])}\n"
         f"{pretty_day(day)}\n\n"
-        "Нажмите на имя, чтобы изменить отметку. ❌ — отсутствует."
+        "Нажмите на имя, чтобы изменить отметку.   ❌ — отсутствует."
     )
     if is_sealed(day):
         head += "\n\n🔒 <b>Этот день закрыт, изменить его больше нельзя.</b>"
@@ -478,7 +478,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     await update.message.reply_text(
-        "🔒 <b>Это закрытый бот.</b>\n\n"
+        "🔒 <b>Это приватный бот.</b>\n\n"
         "Отправьте мне ваш код доступа, чтобы пройти верификацию.\n"
         "<i>Каждый код работает только один раз — он перестаёт действовать, "
         "как только подтвердит аккаунт.</i>",
@@ -514,7 +514,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             problem = "Неверный код."
         await update.message.reply_text(
-            f"❌ {problem} Попросите новый код у одного из пользователей бота."
+            f"❌ {problem} Попросите новый код у админов боты."
         )
 
 
@@ -1047,7 +1047,7 @@ async def job_weekly_stats(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     caption = (
-        f"📊 <b>Посещаемость за неделю</b> — {html.escape(CONFIG['group_name'])}\n"
+        f"📊 <b>Статистика за неделю</b> — {html.escape(CONFIG['group_name'])}\n"
         f"{ru.date_short(start, year=False)} – {ru.date_short(end)}  ·  {ru.school_days(days)}"
     )
     targets = private_chats() + group_chats()
@@ -1073,7 +1073,7 @@ async def job_unmarked_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     n = await broadcast_text(
         context, private_chats(),
-        f"⚠️ <b>Вы ещё не отметили посещаемость</b>\n{pretty_day(day)}",
+        f"⚠️ <b>Предупреждение: Вы ещё не отметили посещаемость, а ну быстро отмечаем</b>\n{pretty_day(day)}",
     )
     log.info("Unmarked-attendance reminder sent to %d chat(s).", n)
 
