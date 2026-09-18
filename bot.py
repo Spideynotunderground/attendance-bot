@@ -745,7 +745,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if data.startswith("rep:"):
-        await query.message.reply_text("<b>Перекличка завершена.</b>\nКто пришёл — молодец.\nКто не пришёл — смышлёный.")  
+        await query.message.reply_text("<b>Перекличка завершена.</b>\n" "Кто пришёл — молодец.\n" "Кто не пришёл — смышлёный.", parse_mode="HTML")  
         msg = await query.message.reply_text("⏳ Формирую отчёт...")
         # ///////// dm
         # await query.answer("Формирую отчёт…")
