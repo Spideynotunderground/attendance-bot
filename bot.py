@@ -396,7 +396,7 @@ MENU_TEXT = "✅ <b>Вы зарегистрированы.</b>\n\nЧто буд�
 
 def menu_markup() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Начинаем перекличку.", callback_data="mark")],
+        [InlineKeyboardButton("📋 Начинаем перекличку", callback_data="mark")],
         [InlineKeyboardButton("👁 Посмотрим журнал", callback_data="view")],
     ])
 
@@ -745,9 +745,13 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if data.startswith("rep:"):
-        await query.message.answer("✅ Перекличка завершена.")
-        await query.answer("Формирую отчёт…")
+        await query.message.reply_text("✅ Перекличка завершена.")  
+        msg = await query.message.reply_text("⏳ Формирую отчёт...")
+        # /////////
+        # await query.answer("Формирую отчёт…")
         await send_report(update, context, data.split(":", 1)[1])
+        await msg.edit_text("✅ Отчёт сформирован.")
+        #////
         return
 
     if data.startswith("snd:"):
