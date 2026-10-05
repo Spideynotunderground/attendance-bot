@@ -130,6 +130,8 @@ class Bot_:
         self.docs.append(document.name)
 
     async def send_message(self, chat_id, text, reply_markup=None, **kw):
+        if chat_id in self.send_fail:
+            raise self.send_fail[chat_id]
         self._n += 1
         self.messages.append({"chat_id": chat_id, "text": text, "markup": reply_markup})
         return Message(text, chat_id=chat_id, message_id=self._n)
@@ -203,7 +205,7 @@ async def main():
 
     q = Query("mark")
     await bot.on_button(Update(teacher, query=q), ctx)
-    check("unverified button press blocked", "не верифицированы" in (q.toasts[0] or ""))
+    check("unverified button press blocked", "не зарегистрированы" in (q.toasts[0] or ""))
     check("unverified press renders no screen", q.screens == [])
 
     m = Message("hunter2")
@@ -223,9 +225,9 @@ async def main():
     section("menu and roster")
     m = Message("hi")
     await bot.on_text(Update(teacher, message=m), ctx)
-    check("verified user gets the menu", "верифицированы" in m.sent[0].lower())
+    check("verified user gets the menu", "зарегистрированы" in m.sent[0].lower())
     check("menu has both buttons", labels(bot.menu_markup()) ==
-          ["📋 Отметить посещаемость", "👁 Посмотреть отмеченную посещаемость"])
+          ["📋 Отметить посещаемость", "👁 Посмотреть журнал"])
 
     q = Query("mark")
     await bot.on_button(Update(teacher, query=q), ctx)
@@ -284,7 +286,7 @@ async def main():
     check("OK removes the picture", okq.message.deleted)
     check("OK returns to the main menu",
           labels(ctx.bot.messages[-1]["markup"]) ==
-          ["📋 Отметить посещаемость", "👁 Посмотреть отмеченную посещаемость"])
+          ["📋 Отметить посещаемость", "👁 Посмотреть журнал"])
 
     section("Uzbekistan time")
     check("timezone is Asia/Tashkent", str(bot.TZ) == "Asia/Tashkent")
@@ -442,7 +444,7 @@ async def main():
     check("revoking a used code removes that person's access", not bot.is_verified(6006))
     q = Query("mark")
     await bot.on_button(Update(victim, query=q), ctx)
-    check("their buttons stop working", "не верифицированы" in (q.toasts[0] or ""))
+    check("their buttons stop working", "не зарегистрированы" in (q.toasts[0] or ""))
     check("they drop out of the reminder list", 6006 not in bot.private_chats())
     check("everyone else keeps access", bot.is_verified(teacher.id))
 
@@ -621,7 +623,7 @@ async def main():
     check("stats reach every user and every group",
           len(ctx.bot.photos) == before + expected)
     check("stats caption names the week",
-          "Посещаемость за неделю" in ctx.bot.photos[-1]["caption"])
+          "Статистика за неделю" in ctx.bot.photos[-1]["caption"])
     check("stats cover last Mon-Sun, not this week",
           "7 сен" in ctx.bot.photos[-1]["caption"] and "13 сен 2026" in ctx.bot.photos[-1]["caption"])
     check("the image is uploaded once then reused by file_id",
@@ -670,6 +672,168 @@ async def main():
           storage.load()["attendance"]["2026-09-01"][0] == "Bob Karter")
     bot.CONFIG["students"] = ["Alice Brown", "Bob Carter", "Chen Wei"]
     bot.CONFIG.pop("renamed_students")
+
+    section("admin activity notifications")
+    import re
+    import telegram as tg
+    from datetime import timezone
+    from telegram.ext import Application, MessageHandler, filters as tg_filters
+
+    class App_:
+        def __init__(self):
+            self.tasks = []
+
+        def create_task(self, coro, update=None, **kw):
+            self.tasks.append(coro)
+            return coro
+
+    def tctx():
+        c = Ctx()
+        c.application = App_()
+        return c
+
+    async def run_tasks(c):
+        await asyncio.gather(*c.application.tasks)
+
+    mirzo = User(5597525853, "Mukhammadmirzo", "devmancer48")
+    bek = User(1725253631, "Mukhammadbek", "person_m_b")
+    bot.CONFIG["admins"] = ["person_m_b", "@DevMancer48"]
+    bot.STATE["known_users"] = {}
+    bot.STATE["verified_users"]["5597525853"] = {
+        "name": "Mukhammadmirzo", "username": "devmancer48", "code": "x", "verified_at": "x"}
+
+    bot.seed_known_users()
+    check("an admin already verified is reachable at startup", bot.admin_chat_ids() == [5597525853])
+
+    c = tctx()
+    await bot.track_activity(Update(bek, message=Message("/start", chat_id=bek.id)), c)
+    check("the other admin becomes reachable once they message the bot",
+          bot.admin_chat_ids() == [1725253631, 5597525853])
+    await run_tasks(c)
+    check("an admin's own activity goes only to the other admin",
+          [m["chat_id"] for m in c.bot.messages] == [5597525853])
+
+    c = tctx()
+    await bot.track_activity(Update(teacher, message=Message("Привет, бот")), c)
+    check("sending is handed to background tasks, not awaited inline",
+          len(c.application.tasks) == 2 and c.bot.messages == [])
+    await run_tasks(c)
+    note = c.bot.messages[0]["text"] if c.bot.messages else ""
+    check("both admins are notified", sorted(m["chat_id"] for m in c.bot.messages)
+          == [1725253631, 5597525853])
+    check("notification names the user by username", "@ivanova" in note)
+    check("notification includes the message", "Привет, бот" in note)
+    check("notification carries a timestamp", re.search(r"\d{2}:\d{2}:\d{2}", note) is not None)
+
+    c = tctx()
+    await bot.track_activity(Update(intruder, message=Message("hello")), c)
+    await run_tasks(c)
+    check("a user without a username is identified by id",
+          "без username" in c.bot.messages[0]["text"] and "2002" in c.bot.messages[0]["text"])
+
+    c = tctx()
+    menu_msg = Message()
+    menu_msg.reply_markup = bot.menu_markup()
+    await bot.track_activity(Update(teacher, query=Query("mark", menu_msg)), c)
+    await run_tasks(c)
+    check("a button press is reported with its label",
+          "Отметить посещаемость" in c.bot.messages[0]["text"])
+
+    c = tctx()
+    pic = Message()
+    pic.photo, pic.caption = [Photo("p")], "домашка"
+    await bot.track_activity(Update(teacher, message=pic), c)
+    await run_tasks(c)
+    check("media is summarised with its caption",
+          "фото" in c.bot.messages[0]["text"] and "домашка" in c.bot.messages[0]["text"])
+
+    c = tctx()
+    await bot.track_activity(Update(teacher, message=Message("<b>x</b> & y")), c)
+    await run_tasks(c)
+    check("user text is escaped, not rendered as HTML", "&lt;b&gt;x&lt;/b&gt; &amp; y" in c.bot.messages[0]["text"])
+
+    c = tctx()
+    await bot.track_activity(Update(teacher, message=Message("я" * 2000)), c)
+    await run_tasks(c)
+    check("very long messages are shortened", len(c.bot.messages[0]["text"]) < 1000
+          and "…" in c.bot.messages[0]["text"])
+
+    c = tctx()
+    await bot.track_activity(Update(teacher, message=Message("hi"), chat=Chat(-100777, "group", "G")), c)
+    check("group chatter is not reported", c.application.tasks == [])
+
+    c = tctx()
+    robot = User(31337, "Some Bot", "some_bot")
+    robot.is_bot = True
+    await bot.track_activity(Update(robot, message=Message("beep")), c)
+    check("other bots are ignored", c.application.tasks == [])
+
+    c = tctx()
+    c.bot.send_fail = {1725253631: Forbidden("Forbidden: bot was blocked by the user")}
+    await bot.track_activity(Update(teacher, message=Message("still works?")), c)
+    await run_tasks(c)
+    check("an unreachable admin doesn't stop the other from being notified",
+          [m["chat_id"] for m in c.bot.messages] == [5597525853])
+
+    c = tctx()
+    c.bot.send_fail = {5597525853: TelegramError("Bad Request: chat not found")}
+    await bot.track_activity(Update(teacher, message=Message("x")), c)
+    await run_tasks(c)
+    check("an invalid admin chat is handled quietly", [m["chat_id"] for m in c.bot.messages] == [1725253631])
+
+    bot.CONFIG["admins"] = ["person_m_b", "devmancer48", "ghost_admin"]
+    c = tctx()
+    await bot.track_activity(Update(teacher, message=Message("x")), c)
+    await run_tasks(c)
+    check("an admin who never messaged the bot is skipped without error", len(c.bot.messages) == 2)
+
+    c = tctx()
+    impostor = User(999999, "Impostor", "DevMancer48")
+    await bot.track_activity(Update(impostor, message=Message("give me the notifications")), c)
+    await run_tasks(c)
+    check("a new account taking an admin's username can't hijack notifications",
+          bot.STATE["known_users"]["devmancer48"] == 5597525853 and 999999 not in bot.admin_chat_ids())
+
+    bot.CONFIG["admins"] = ["123456789"]
+    check("numeric ids in config work without a prior message", bot.admin_chat_ids() == [123456789])
+    bot.CONFIG["admins"] = ["person_m_b", "devmancer48"]
+
+    real_describe = bot.describe_activity
+    bot.describe_activity = lambda u: 1 / 0
+    try:
+        await bot.track_activity(Update(teacher, message=Message("x")), tctx())
+        check("a tracking error never reaches normal handling", True)
+    except Exception:
+        check("a tracking error never reaches normal handling", False)
+    bot.describe_activity = real_describe
+
+    # Real python-telegram-bot dispatch: tracking in group -1 must not keep the
+    # update from the regular handlers.
+    app = Application.builder().token("0:OFFLINE-TEST").build()
+    bot.register_handlers(app)
+    tracker = [h for h in app.handlers.get(-1, []) if getattr(h, "callback", None) is bot.track_activity]
+    check("the tracker is registered ahead of every other handler",
+          len(tracker) == 1 and min(app.handlers) == -1)
+
+    probe = Application.builder().token("0:OFFLINE-TEST").build()
+    probe.add_handler(tg.ext.TypeHandler(tg.Update, bot.track_activity), group=-1)
+    reached = []
+
+    async def normal_handler(u, ctx_):
+        reached.append(u.update_id)
+
+    probe.add_handler(MessageHandler(tg_filters.TEXT, normal_handler))
+    probe._initialized = True          # skip the network call initialize() would make
+    bot.CONFIG["admins"] = []
+    real = tg.Update(update_id=4242, message=tg.Message(
+        message_id=1, date=dt.datetime.now(timezone.utc),
+        chat=tg.Chat(id=8080, type="private"),
+        from_user=tg.User(id=8080, first_name="Real", is_bot=False, username="real_user"),
+        text="hello"))
+    await probe.process_update(real)
+    check("with the tracker in place, the normal handler still gets the update", reached == [4242])
+    check("and the tracker ran on it too", bot.STATE["known_users"].get("real_user") == 8080)
+    bot.CONFIG["admins"] = ["person_m_b", "devmancer48"]
 
     print()
     if failures:

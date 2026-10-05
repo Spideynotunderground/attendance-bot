@@ -14,6 +14,7 @@
      group the bot is currently a member of.
 """
 
+import asyncio
 import html
 import io
 import json
@@ -28,7 +29,7 @@ from zoneinfo import ZoneInfo
 
 from telegram import ChatMember, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, ChatMigrated, Forbidden, TelegramError
+from telegram.error import BadRequest, ChatMigrated, Forbidden, RetryAfter, TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -36,6 +37,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -1115,23 +1117,182 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # --------------------------------------------------------------------------
 
-def main() -> None:
-    global CONFIG, STATE
-    load_dotenv()
-    CONFIG = load_config()
-    STATE = storage.load()
-    seed_codes()
-    apply_revocations()
-    apply_renames()
+# --------------------------------------------------------------------------
+# admin activity notifications
+# --------------------------------------------------------------------------
+#
+# The accounts listed under "admins" in config.json are told about every
+# message sent to the bot and every button pressed. It is the same bot, not a
+# separate one: these are privileges of those two accounts.
 
-    builder = Application.builder().token(CONFIG["token"])
-    # Some networks block api.telegram.org outright. Set "proxy" in config.json
-    # (e.g. "socks5://127.0.0.1:1080" or "http://user:pass@host:port") to tunnel.
-    proxy = (CONFIG.get("proxy") or "").strip()
-    if proxy:
-        builder = builder.proxy(proxy).get_updates_proxy(proxy)
-        log.info("Using proxy %s", proxy)
-    app = builder.build()
+MAX_QUOTED = 500
+
+
+def admin_entries() -> list:
+    return [str(a).strip().lstrip("@") for a in CONFIG.get("admins", []) if str(a).strip()]
+
+
+def admin_usernames() -> list:
+    return [a.lower() for a in admin_entries() if not a.lstrip("-").isdigit()]
+
+
+def admin_chat_ids() -> list:
+    """Numeric ids for the configured admins that the bot can reach.
+
+    A bot cannot message "@username" — it needs the id, which it only learns
+    once that person has written to it. Numeric ids in config are used as is.
+    """
+    ids = []
+    for entry in admin_entries():
+        uid = int(entry) if entry.lstrip("-").isdigit() else STATE["known_users"].get(entry.lower())
+        if uid is not None and uid not in ids:
+            ids.append(uid)
+    return ids
+
+
+def remember_user(user) -> None:
+    """Record username -> id for everyone the bot sees."""
+    if user is None or not user.username:
+        return
+    key = user.username.lower()
+    known = STATE["known_users"].get(key)
+    if known == user.id:
+        return
+    if known is not None and key in admin_usernames():
+        # User ids never change, usernames can be given up and claimed by
+        # someone else. Never let that redirect admin notifications.
+        log.warning("Ignoring @%s from id %s: that admin username is pinned to id %s",
+                    user.username, user.id, known)
+        return
+    STATE["known_users"][key] = user.id
+    storage.save(STATE)
+
+
+def seed_known_users() -> None:
+    """Verified users already carry their usernames — learn those at startup."""
+    changed = False
+    for uid, info in STATE["verified_users"].items():
+        name = (info.get("username") or "").lower()
+        if name and name not in STATE["known_users"]:
+            STATE["known_users"][name] = int(uid)
+            changed = True
+    if changed:
+        storage.save(STATE)
+    waiting = [f"@{u}" for u in admin_usernames() if u not in STATE["known_users"]]
+    if waiting:
+        log.warning("Admin notifications can't reach %s until they message the bot once.",
+                    ", ".join(waiting))
+
+
+def button_label(query) -> str | None:
+    markup = getattr(query.message, "reply_markup", None) if query.message else None
+    for row in getattr(markup, "inline_keyboard", None) or ():
+        for button in row:
+            if button.callback_data == query.data:
+                return button.text
+    return None
+
+
+MEDIA_KINDS = [
+    ("photo", "📷 фото"), ("video", "🎬 видео"), ("animation", "🎞 GIF"),
+    ("voice", "🎤 голосовое сообщение"), ("video_note", "⏺ видеосообщение"),
+    ("audio", "🎵 аудио"), ("document", "📎 файл"), ("sticker", "🏷 стикер"),
+    ("location", "📍 геолокация"), ("contact", "👤 контакт"), ("poll", "📊 опрос"),
+]
+
+
+def quote(text: str) -> str:
+    return text if len(text) <= MAX_QUOTED else text[:MAX_QUOTED] + "…"
+
+
+def describe_activity(update) -> str | None:
+    """What the user just did, or None if it isn't reportable."""
+    query = update.callback_query
+    if query is not None:
+        label = button_label(query)
+        return f"🔘 нажал(а) кнопку «{label}»" if label else "🔘 нажал(а) кнопку"
+
+    msg = update.message
+    chat = update.effective_chat
+    if msg is None or chat is None or chat.type != "private":
+        return None
+
+    text = getattr(msg, "text", None)
+    if text:
+        return f"⌨️ команда {quote(text)}" if text.startswith("/") else f"💬 {quote(text)}"
+    kind = next((label for attr, label in MEDIA_KINDS if getattr(msg, attr, None)), None)
+    caption = getattr(msg, "caption", None)
+    summary = kind or "✉️ сообщение"
+    return f"{summary}: {quote(caption)}" if caption else summary
+
+
+def activity_text(update, user, summary: str) -> str:
+    handle = f"@{user.username}" if user.username else "без username"
+    status = "✅ верифицирован(а)" if is_verified(user.id) else "🔒 не верифицирован(а)"
+    msg = update.message
+    when = getattr(msg, "date", None) if msg is not None else None
+    when = when.astimezone(TZ) if when else now()
+    return (
+        f"👤 <b>{html.escape(handle)}</b> · id <code>{user.id}</code>\n"
+        f"{html.escape(user.full_name or '')} · {status}\n\n"
+        f"{html.escape(summary)}\n\n"
+        f"🕒 {ru.date_short(when)}, {when.strftime('%H:%M:%S')}"
+    )
+
+
+async def notify_admin(bot, chat_id: int, text: str) -> None:
+    """Deliver one notification; failures are logged, never raised."""
+    for attempt in (1, 2):
+        try:
+            await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
+            return
+        except RetryAfter as exc:
+            delay = exc.retry_after
+            delay = delay.total_seconds() if hasattr(delay, "total_seconds") else delay
+            if attempt == 2:
+                log.warning("Admin notification to %s dropped: still rate-limited", chat_id)
+                return
+            await asyncio.sleep(float(delay))
+        except Forbidden as exc:
+            log.warning("Admin %s can't be reached (blocked the bot or never started it): %s",
+                        chat_id, exc)
+            return
+        except TelegramError as exc:
+            log.warning("Admin notification to %s failed: %s", chat_id, exc)
+            return
+        except Exception:
+            log.exception("Admin notification to %s failed", chat_id)
+            return
+
+
+async def track_activity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs ahead of every other handler without altering or delaying them.
+
+    Sending happens in background tasks, so a slow or unreachable admin never
+    holds up the user's reply, and nothing here can stop normal handling.
+    """
+    try:
+        user = update.effective_user
+        if user is None or getattr(user, "is_bot", False):
+            return
+        remember_user(user)
+        summary = describe_activity(update)
+        if summary is None:
+            return
+        recipients = [cid for cid in admin_chat_ids() if cid != user.id]
+        if not recipients:
+            return
+        text = activity_text(update, user, summary)
+        for chat_id in recipients:
+            context.application.create_task(notify_admin(context.bot, chat_id, text), update=update)
+    except Exception:
+        log.exception("Activity tracking failed; normal handling continues.")
+
+
+def register_handlers(app) -> None:
+    # Group -1 runs before the rest and, unlike same-group handlers, doesn't
+    # stop the update from reaching them.
+    app.add_handler(TypeHandler(Update, track_activity), group=-1)
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("menu", cmd_start))
@@ -1145,6 +1306,27 @@ def main() -> None:
     ))
     app.add_handler(MessageHandler(filters.ChatType.GROUPS, on_group_activity), group=1)
     app.add_error_handler(on_error)
+
+
+def main() -> None:
+    global CONFIG, STATE
+    load_dotenv()
+    CONFIG = load_config()
+    STATE = storage.load()
+    seed_codes()
+    apply_revocations()
+    apply_renames()
+    seed_known_users()
+
+    builder = Application.builder().token(CONFIG["token"])
+    # Some networks block api.telegram.org outright. Set "proxy" in config.json
+    # (e.g. "socks5://127.0.0.1:1080" or "http://user:pass@host:port") to tunnel.
+    proxy = (CONFIG.get("proxy") or "").strip()
+    if proxy:
+        builder = builder.proxy(proxy).get_updates_proxy(proxy)
+        log.info("Using proxy %s", proxy)
+    app = builder.build()
+    register_handlers(app)
 
     jq = app.job_queue
     jq.run_daily(midnight_rollover, time=dtime(0, 0, tzinfo=TZ), name="midnight-rollover")

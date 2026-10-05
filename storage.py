@@ -31,6 +31,8 @@ EMPTY_STATE = {
     "open_screens": {},
     # "YYYY-MM-DD" -> {"by", "at"} for days the register was actually taken
     "marked": {},
+    # lowercase username -> user id, so admins can be messaged by username
+    "known_users": {},
 }
 
 

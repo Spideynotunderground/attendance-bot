@@ -81,6 +81,40 @@ there — so if you added it before starting the bot, just send `/start` in that
 group once. Removing the bot from a group drops it from the list. `/groups`
 shows what it currently knows.
 
+## Admin activity notifications
+
+The accounts listed under `admins` in `config.json` — currently **@person_m_b**
+and **@devmancer48** — get a private message from the bot whenever anyone:
+
+- sends it a message in private chat (text, command, photo, file, voice…), or
+- presses one of its buttons.
+
+```
+👤 @ivanova · id 1001
+Ms. Ivanova · ✅ верифицирован(а)
+
+💬 Привет, бот
+
+🕒 14 сен 2026, 10:42:05
+```
+
+These are privileges of those two accounts inside this bot, not a separate bot.
+Details:
+
+- **An admin must message the bot once** before it can notify them — Telegram
+  bots can't write to a `@username` they have never seen. Verified admins are
+  picked up automatically at startup; the log warns about any that aren't.
+- **Admins aren't notified about their own activity**, only about everyone
+  else's (including each other).
+- **Group messages aren't reported**, only private chats and button presses.
+- **Nothing is slowed down or changed for users.** Tracking runs before the
+  normal handlers but sends in the background; an admin who blocked the bot or
+  can't be reached is logged and skipped, and the other admin still gets it.
+- **An admin's username is pinned to their account.** If they give up the
+  username and someone else claims it, the notifications don't follow it.
+  To be fully explicit, list numeric user ids instead of usernames.
+- Messages longer than 500 characters are shortened in the notification.
+
 ## Scheduled messages
 
 All times are **Asia/Tashkent**. Nothing is sent on a day off.
@@ -149,6 +183,7 @@ is labelled `🔒 День закрыт — данные окончательн�
 | `students` | Your roster. Edit this list — button order follows it |
 | `renamed_students` | Spelling fixes, `"old": "new"` — carries saved attendance over to the new spelling |
 | `days_off` | Weekly days off and one-off holidays |
+| `admins` | Accounts notified about all activity — usernames or numeric ids |
 
 Environment variables (`.env` locally, host settings on a server):
 

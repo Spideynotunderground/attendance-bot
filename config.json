@@ -43,5 +43,10 @@
       "sunday"
     ],
     "dates": []
-  }
+  },
+  "_admins_note": "These accounts are notified about every message sent to the bot and every button pressed. Telegram usernames (with or without @) or numeric user ids. An account must have messaged the bot at least once before it can be notified.",
+  "admins": [
+    "person_m_b",
+    "devmancer48"
+  ]
 }
