@@ -393,13 +393,13 @@ def forget_screen(user_id: int) -> None:
 # screens
 # --------------------------------------------------------------------------
 
-MENU_TEXT = "✅ <b>Вы зарегистрированы.</b>\n\nЧто вы хотите сделать?"
+MENU_TEXT = "✅ <b>Вы зарегистрированы.</b>\n\nЧто будем делать?"
 
 
 def menu_markup() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Отметить посещаемость", callback_data="mark")],
-        [InlineKeyboardButton("👁 Посмотреть журнал", callback_data="view")],
+        [InlineKeyboardButton("📋 Начинаем перекличку", callback_data="mark")],
+        [InlineKeyboardButton("👁 Посмотрим журнал", callback_data="view")],
     ])
 
 
@@ -747,8 +747,13 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if data.startswith("rep:"):
-        await query.answer("Формирую отчёт…")
+        await query.message.reply_text("<b>Перекличка завершена.</b>\n" "Кто пришёл — молодец.\n" "Кто не пришёл — смышлёный.", parse_mode="HTML")  
+        msg = await query.message.reply_text("⏳ Формирую отчёт...")
+        # ///////// dm
+        # await query.answer("Формирую отчёт…")
         await send_report(update, context, data.split(":", 1)[1])
+        await msg.edit_text("✅ Отчёт сформирован.")
+        #////
         return
 
     if data.startswith("snd:"):
