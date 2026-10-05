@@ -747,6 +747,14 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if data.startswith("rep:"):
+        await query.answer()
+        # Close the roster: strip its name buttons and stop tracking it, so the
+        # midnight rollover doesn't put them back.
+        forget_screen(user.id)
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except TelegramError:
+            pass
         await query.message.reply_text("<b>Перекличка завершена.</b>\n" "Кто пришёл — молодец.\n" "Кто не пришёл — смышлёный.", parse_mode="HTML")  
         msg = await query.message.reply_text("⏳ Формирую отчёт...")
         # ///////// dm

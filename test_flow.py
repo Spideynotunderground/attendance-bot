@@ -40,6 +40,9 @@ class Message:
         self.sent.append(text)
         return Message()
 
+    async def edit_text(self, text, **kw):
+        self.sent.append(text)
+
     async def delete(self):
         self.deleted = True
 
@@ -362,6 +365,9 @@ async def main():
     rq = Query(f"rep:{today}", Message(chat_id=999, message_id=55))
     await bot.on_button(Update(teacher, query=rq), ctx)
     photo = ctx.bot.photos[-1]
+    check("the roster's name buttons are closed", rq.markup_edits == [None])
+    check("the closed roster is no longer tracked",
+          str(teacher.id) not in bot.STATE["open_screens"])
     check("a PNG report is sent", photo["name"].endswith(".png") and photo["size"] > 5000)
     check("caption counts 1 present / 2 absent",
           "Присутствуют: <b>1</b>" in photo["caption"] and "Отсутствуют: <b>2</b>" in photo["caption"])
